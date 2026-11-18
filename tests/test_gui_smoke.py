@@ -159,7 +159,7 @@ class Tree(W):
 
 def install_fake_tk():
     tk = types.ModuleType("tkinter")
-    for n in ("Tk", "Toplevel", "Frame", "Label", "Canvas", "Text", "Listbox", "PhotoImage", "Misc"):
+    for n in ("Tk", "Toplevel", "Frame", "Label", "Canvas", "Text", "Listbox", "PhotoImage", "Misc", "Button"):
         setattr(tk, n, type(n, (W,), {}))
     tk.TclError = TclError
     tk.StringVar = Var
@@ -197,6 +197,13 @@ class GuiSmoke(unittest.TestCase):
         from dateizwilling import gui
         from dateizwilling.state import Store
         self.gui = gui
+        self.dialogs = []
+
+        def fake_dialog(parent, c, font, bold, title, text, kind="info", buttons=(), default="ok",
+                        cancel_value=None):
+            self.dialogs.append((kind, text))
+            return default
+        gui.dark_dialog = fake_dialog
         self.tmp = tempfile.mkdtemp()
         self.data = os.path.join(self.tmp, "daten")
         self.store = Store(self.data)
@@ -228,7 +235,7 @@ class GuiSmoke(unittest.TestCase):
         app.archive_var.set(os.path.join(self.tmp, "Archiv"))
         app.start_scan()
         self.wait(app)
-        self.assertEqual(len(app.groups), 1, self.mb.calls)
+        self.assertEqual(len(app.groups), 1, self.dialogs)
         gid = app.groups[0]["gid"]
         # Auswahl + Umschalten + Original festlegen
         app.tree.focus(f"g{gid}:2")
@@ -243,7 +250,7 @@ class GuiSmoke(unittest.TestCase):
         app.archive(True)
         self.wait(app)
         archived = [m for m in app.groups[0]["members"] if m.get("state") == "archived"]
-        self.assertEqual(len(archived), 2, self.mb.calls)
+        self.assertEqual(len(archived), 2, self.dialogs)
         # Bericht, Sprache, Einstellungen, Info
         app.toggle_lang()
         app.toggle_log()
@@ -254,7 +261,8 @@ class GuiSmoke(unittest.TestCase):
         app.undo_last()
         self.wait(app)
         self.assertTrue(all(m.get("state") == "open" for m in app.groups[0]["members"]))
-        self.assertFalse([c for c in self.mb.calls if c[0] == "showerror"], self.mb.calls)
+        self.assertFalse([d for d in self.dialogs if d[0] == "error"], self.dialogs)
+        self.assertFalse(self.mb.calls, "native Windows-Meldungsfenster verwendet")
 
     def test_restart_loads_session(self):
         app = self.gui.App(self.gui.tk.Tk(), self.store, self.data)
@@ -269,3 +277,18 @@ class GuiSmoke(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DialogSmoke(unittest.TestCase):
+    def test_dark_dialog_builds(self):
+        install_fake_tk()
+        for m in [m for m in sys.modules if m.startswith("dateizwilling.gui")]:
+            del sys.modules[m]
+        from dateizwilling import gui
+        c = gui.Palette(False)
+        root = gui.tk.Tk()
+        v = gui.dark_dialog(root, c, ("Segoe UI", 10), ("Segoe UI", 10, "bold"), "T", "Text", "question",
+                            (("yes", "Ja"), ("no", "Nein")), "yes", "no")
+        self.assertEqual(v, "no")   # Attrappe schliesst sofort -> Abbruchwert
+        sf = gui.ScrollFrame(root, c.panel)
+        sf._update_bar()

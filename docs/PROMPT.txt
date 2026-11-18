@@ -7,3 +7,6 @@ Ich benötige eine App im gleichen Stiel wie BildZwilling die App soll DateiZwil
 
 [Nachricht 2]
 publisher, alles Office Derivate, Zusätzlich natürlich auch alle Bilddateien wie im BildZwilling und zusätzlich noch PDF oder die ADOBE Suite oder die Files von Affinity Suite oder Capture One Kurz um ein Bereinigungs tool für vergessene gleiche Dateiinhalte. Nutzbar auch als portable.Exe oder dann auch zum compailieren für MacOS. Mach dnn auch immer ein Code Review auf Sicherheit, stabilität und ausfallsicherheit. Wenn die App crashen sollte muss es an der aufgehörten position wieder weiter gehen usw. Erstelle eine QuickDoku als PDF in Deutsch und in English. Die Doku zur Tschnischen Beschreibung soll auch den Promt enthalten,. Zusätzlich noch den Promt separat exportieren. Alles als Zip Das Layout wie die BildZwilling App - Leg los!
+
+[Nachtrag 1.0.1]
+und über das INFO ist die Menüzeile in Weiss dargesteltl es soll alles in Dunkelgrau mit wiesserschrift und orangen akzenten dargestellt werden. - Die PDF Dukomente fehlen noch. die Fenster und Programmdatei passen nicht immer - es muss zuerst auf Vollbild gegangen werden damit der Starte Scan Button erscheint. dass sollte alles sichtbar sien - oder dynamisch skaliert. ggf. damit es gut aussiehe. Die Weissen Checkboxen sollten grau mit weiss oder orange sein

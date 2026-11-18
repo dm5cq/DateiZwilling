@@ -12,7 +12,7 @@ import threading
 import time
 import traceback
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, ttk
 from tkinter import font as tkfont
 
 from . import APP_COPYRIGHT, APP_COPYRIGHT_EN, APP_NAME, APP_VERSION, config
@@ -55,24 +55,170 @@ class Palette:
 
 
 def style_titlebar(win: tk.Misc, color: str, text: str = "#ffffff") -> None:
-    """Graue Titelleiste unter Windows 10/11 (DWM)."""
+    """Dunkelgraue Titelleiste mit weisser Schrift unter Windows 10/11 (DWM).
+    Wird nach dem Anzeigen des Fensters erneut angewendet, damit auch
+    Dialoge (Info, Einstellungen …) zuverlaessig grau werden."""
     if not IS_WIN:
         return
-    try:
-        import ctypes
-        win.update_idletasks()
-        hwnd = ctypes.windll.user32.GetParent(win.winfo_id()) or win.winfo_id()
-        dark = ctypes.c_int(1)
-        ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(dark), ctypes.sizeof(dark))
 
-        def ref(hx: str) -> ctypes.c_int:
-            r, g, b = int(hx[1:3], 16), int(hx[3:5], 16), int(hx[5:7], 16)
-            return ctypes.c_int(r | (g << 8) | (b << 16))
-        cap, txt = ref(color), ref(text)
-        ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 35, ctypes.byref(cap), 4)
-        ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 36, ctypes.byref(txt), 4)
+    def apply() -> None:
+        try:
+            import ctypes
+            if not win.winfo_exists():
+                return
+            win.update_idletasks()
+            try:
+                hwnd = int(win.wm_frame(), 16)  # type: ignore[attr-defined]
+            except Exception:
+                hwnd = 0
+            if not hwnd:
+                hwnd = ctypes.windll.user32.GetParent(win.winfo_id()) or win.winfo_id()
+            dwm = ctypes.windll.dwmapi
+            dark = ctypes.c_int(1)
+            for attr in (20, 19):  # DWMWA_USE_IMMERSIVE_DARK_MODE (neu/alt)
+                if dwm.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(dark), ctypes.sizeof(dark)) == 0:
+                    break
+
+            def ref(hx: str) -> ctypes.c_int:
+                r, g, b = int(hx[1:3], 16), int(hx[3:5], 16), int(hx[5:7], 16)
+                return ctypes.c_int(r | (g << 8) | (b << 16))
+            cap, txt, border = ref(color), ref(text), ref(color)
+            dwm.DwmSetWindowAttribute(hwnd, 35, ctypes.byref(cap), 4)     # Titelleiste
+            dwm.DwmSetWindowAttribute(hwnd, 36, ctypes.byref(txt), 4)     # Titeltext
+            dwm.DwmSetWindowAttribute(hwnd, 34, ctypes.byref(border), 4)  # Rahmen
+            # Rahmen neu zeichnen lassen (sonst bleibt die Leiste bis zum Fokuswechsel weiss)
+            ctypes.windll.user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0020)
+        except Exception:
+            pass
+    apply()
+    try:
+        win.after(60, apply)
+        win.bind("<Map>", lambda e: win.after(10, apply) if e.widget is win else None, add="+")
     except Exception:
         pass
+
+
+def dark_dialog(parent: tk.Misc, c: "Palette", font: tuple, bold: tuple, title: str, text: str,
+                kind: str = "info", buttons: tuple = (("ok", "OK"),), default: str = "ok",
+                cancel_value=None):
+    """Eigener, dunkler Meldungsdialog (statt der weissen Windows-Meldungsfenster).
+    buttons: ((rueckgabewert, beschriftung), …) – der Standardknopf ist orange."""
+    win = tk.Toplevel(parent)
+    win.withdraw()
+    win.title(title)
+    win.configure(bg=c.panel)
+    win.resizable(False, False)
+    try:
+        win.transient(parent)
+    except tk.TclError:
+        pass
+    result = {"v": cancel_value}
+
+    def done(v) -> None:
+        result["v"] = v
+        try:
+            win.grab_release()
+        except tk.TclError:
+            pass
+        win.destroy()
+
+    body = tk.Frame(win, bg=c.panel)
+    body.pack(fill="both", expand=True, padx=22, pady=(20, 12))
+    sym_color = {"info": c.blue, "question": c.accent, "warning": c.yellow, "error": c.red}.get(kind, c.accent)
+    sym = {"info": "i", "question": "?", "warning": "!", "error": "✕"}.get(kind, "i")
+    ic = tk.Canvas(body, width=46, height=46, bg=c.panel, highlightthickness=0)
+    ic.create_oval(3, 3, 43, 43, fill=sym_color, outline="")
+    ic.create_text(23, 23, text=sym, fill=c.on_accent if kind == "question" else "#ffffff",
+                   font=(bold[0], int(bold[1] * 1.6), "bold"))
+    ic.pack(side="left", anchor="n", padx=(0, 16))
+    tk.Label(body, text=text, bg=c.panel, fg=c.fg, font=font, justify="left", anchor="w",
+             wraplength=480).pack(side="left", fill="both", expand=True)
+    sep = tk.Frame(win, bg=c.border, height=1)
+    sep.pack(fill="x")
+    row = tk.Frame(win, bg=c.header)
+    row.pack(fill="x")
+    focus_btn = None
+    for value, label in reversed(buttons):
+        primary = value == default
+        b = tk.Button(row, text=label, command=lambda v=value: done(v), font=bold if primary else font,
+                      bg=c.accent if primary else c.field, fg=c.on_accent if primary else c.fg,
+                      activebackground=c.accent_hover if primary else c.hover,
+                      activeforeground=c.on_accent if primary else c.fg,
+                      relief="flat", bd=0, padx=18, pady=6, cursor="hand2",
+                      highlightthickness=1, highlightbackground=c.border, highlightcolor=c.accent)
+        b.pack(side="right", padx=(8, 0), pady=12)
+        if primary:
+            focus_btn = b
+    tk.Frame(row, bg=c.header, width=10).pack(side="right")
+    win.protocol("WM_DELETE_WINDOW", lambda: done(cancel_value))
+    win.bind("<Escape>", lambda e: done(cancel_value))
+    win.bind("<Return>", lambda e: done(default))
+    try:
+        win.update_idletasks()
+        pw, ph = parent.winfo_width(), parent.winfo_height()
+        px, py = parent.winfo_rootx(), parent.winfo_rooty()
+        w, h = win.winfo_reqwidth(), win.winfo_reqheight()
+        if pw > 50:
+            win.geometry(f"+{px + max(0, (pw - w) // 2)}+{py + max(0, (ph - h) // 3)}")
+    except (tk.TclError, TypeError, ValueError):
+        pass
+    win.deiconify()
+    style_titlebar(win, c.header)
+    win.after(60, lambda: _safe_grab(win))
+    if focus_btn is not None:
+        focus_btn.focus_set()
+    try:
+        parent.wait_window(win)
+    except tk.TclError:
+        pass
+    return result["v"]
+
+
+class ScrollFrame:
+    """Senkrecht scrollbarer Bereich (Seitenleiste) – Bildlaufleiste erscheint
+    nur, wenn der Inhalt nicht in das Fenster passt."""
+
+    def __init__(self, parent: tk.Misc, bg: str):
+        self.canvas = tk.Canvas(parent, bg=bg, highlightthickness=0, bd=0)
+        self.vsb = ttk.Scrollbar(parent, orient="vertical", command=self.canvas.yview)
+        self.inner = ttk.Frame(self.canvas, style="Panel.TFrame")
+        self._win = self.canvas.create_window(0, 0, window=self.inner, anchor="nw")
+        self.canvas.configure(yscrollcommand=self.vsb.set)
+        self.canvas.pack(side="left", fill="both", expand=True)
+        self.inner.bind("<Configure>", self._on_inner)
+        self.canvas.bind("<Configure>", self._on_canvas)
+        self.canvas.bind_all("<MouseWheel>", self._wheel, add="+")
+
+    def _on_inner(self, _e=None) -> None:
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        self._update_bar()
+
+    def _on_canvas(self, e) -> None:
+        self.canvas.itemconfigure(self._win, width=e.width)
+        self._update_bar()
+
+    def _update_bar(self) -> None:
+        try:
+            need = self.inner.winfo_reqheight() > self.canvas.winfo_height() + 2
+            if need and not self.vsb.winfo_ismapped():
+                self.vsb.pack(side="right", fill="y", before=self.canvas)
+            elif not need and self.vsb.winfo_ismapped():
+                self.vsb.pack_forget()
+                self.canvas.yview_moveto(0)
+        except (tk.TclError, TypeError):
+            pass
+
+    def _wheel(self, e) -> None:
+        try:
+            w = self.canvas.winfo_containing(e.x_root, e.y_root)
+            if w is None or not str(w).startswith(str(self.canvas)) or isinstance(w, tk.Listbox):
+                return
+            if self.inner.winfo_reqheight() <= self.canvas.winfo_height():
+                return
+            step = -int(e.delta / 120) if IS_WIN else -int(e.delta)
+            self.canvas.yview_scroll(step or (-1 if e.delta > 0 else 1), "units")
+        except (tk.TclError, KeyError, AttributeError, TypeError):
+            pass
 
 
 def speak(text: str) -> None:
@@ -129,11 +275,7 @@ class App:
         logging.getLogger("dateizwilling").addHandler(self.log_handler)
 
         root.title(f"{APP_NAME} {APP_VERSION}")
-        try:
-            root.geometry(self.cfg.get("geometry") or "1320x840")
-        except tk.TclError:
-            root.geometry("1320x840")
-        root.minsize(1050, 680)
+        self._fit_window(root)
         self._set_icon(root)
         root.protocol("WM_DELETE_WINDOW", self.on_close)
         root.report_callback_exception = self._tk_exception
@@ -142,6 +284,37 @@ class App:
         root.after(400, self.startup_checks)
 
     # ================================================================ Aufbau
+    def _fit_window(self, root: tk.Tk) -> None:
+        """Fenster an den Bildschirm anpassen: gespeicherte Groesse nur, wenn sie
+        auf den aktuellen Bildschirm passt – sonst 92 % der Flaeche, zentriert.
+        Kleine Bildschirme (Hoehe < 900 px) starten maximiert."""
+        try:
+            sw, sh = int(root.winfo_screenwidth()), int(root.winfo_screenheight())
+        except (tk.TclError, TypeError, ValueError):
+            sw, sh = 1920, 1080
+        maxw, maxh = int(sw * 0.96), int(sh * 0.90)
+        root.minsize(min(900, maxw), min(600, maxh))
+        geo = str(self.cfg.get("geometry") or "")
+        w = h = x = y = None
+        try:
+            size, _, pos = geo.partition("+")
+            w, h = (int(v) for v in size.split("x"))
+            if pos:
+                x, y = (int(v) for v in pos.split("+")[:2])
+        except ValueError:
+            w = h = None
+        if not w or not h or w > maxw or h > maxh:
+            w, h = min(1440, int(sw * 0.92)), min(920, int(sh * 0.86))
+            x, y = None, None
+        if x is None or y is None or x < -20 or y < -20 or x + 100 > sw or y + 60 > sh:
+            x, y = max(0, (sw - w) // 2), max(0, (sh - h) // 3)
+        try:
+            root.geometry(f"{w}x{h}+{x}+{y}")
+            if IS_WIN and (sh < 900 or self.cfg.get("maximized")):
+                root.state("zoomed")
+        except tk.TclError:
+            pass
+
     def _set_icon(self, win: tk.Misc) -> None:
         try:
             png = resource_path(os.path.join("assets", "icon.png"))
@@ -211,14 +384,25 @@ class App:
                      font=self.f_bold)
         st.map("Treeview.Heading", background=[("active", c.hover)])
         for w in ("TCheckbutton", "TRadiobutton"):
-            st.configure(w, background=c.panel, foreground=c.fg, indicatorcolor=c.field)
-            st.map(w, indicatorcolor=[("selected", c.accent)], background=[("active", c.panel)],
-                   foreground=[("disabled", c.muted)])
+            st.configure(w, background=c.panel, foreground=c.fg, focuscolor=c.panel,
+                         indicatorbackground=c.field, indicatorforeground="#ffffff",
+                         indicatorcolor=c.field, upperbordercolor=c.border,
+                         lowerbordercolor=c.border, indicatormargin=(0, 0, 6, 0))
+            st.map(w,
+                   indicatorbackground=[("disabled", c.panel), ("pressed", c.hover),
+                                        ("selected", c.accent), ("!selected", c.field)],
+                   indicatorcolor=[("selected", c.accent), ("!selected", c.field)],
+                   indicatorforeground=[("selected", "#ffffff"), ("!selected", c.field)],
+                   upperbordercolor=[("selected", c.accent), ("active", c.accent)],
+                   lowerbordercolor=[("selected", c.accent), ("active", c.accent)],
+                   background=[("active", c.panel)], foreground=[("disabled", c.muted)])
         st.configure("TCombobox", fieldbackground=c.field, background=c.field, foreground=c.fg,
                      arrowcolor=c.fg, selectbackground=c.field, selectforeground=c.fg)
         st.map("TCombobox", fieldbackground=[("readonly", c.field)], foreground=[("readonly", c.fg)],
                selectbackground=[("readonly", c.field)], selectforeground=[("readonly", c.fg)])
-        st.configure("TEntry", fieldbackground=c.field, foreground=c.fg, insertcolor=c.fg)
+        st.configure("TEntry", fieldbackground=c.field, foreground=c.fg, insertcolor=c.fg,
+                     bordercolor=c.border, lightcolor=c.field, darkcolor=c.field)
+        st.map("TEntry", bordercolor=[("focus", c.accent)], lightcolor=[("focus", c.accent)])
         st.configure("TSpinbox", fieldbackground=c.field, foreground=c.fg, arrowcolor=c.fg,
                      background=c.field)
         st.configure("Horizontal.TProgressbar", background=c.accent, troughcolor=c.field,
@@ -299,7 +483,7 @@ class App:
         # ---------- Hauptbereich
         body = ttk.Frame(self.root)
         body.pack(fill="both", expand=True)
-        side = ttk.Frame(body, style="Panel.TFrame", padding=12, width=340)
+        side = ttk.Frame(body, style="Panel.TFrame", padding=(12, 10, 6, 10), width=345)
         side.pack(side="left", fill="y")
         side.pack_propagate(False)
         self._build_sidebar(side)
@@ -312,8 +496,24 @@ class App:
         self._refresh_tree()
         self._set_busy(self.busy_kind)
 
-    def _build_sidebar(self, side: ttk.Frame) -> None:
+    def _build_sidebar(self, outer: ttk.Frame) -> None:
         t = self.tr
+        # fester Bereich unten: immer sichtbar, egal wie klein das Fenster ist
+        bottom = ttk.Frame(outer, style="Panel.TFrame")
+        bottom.pack(side="bottom", fill="x")
+        self.scan_btn = ttk.Button(bottom, text=t("start_scan"), style="Accent.TButton", command=self.start_scan)
+        self.scan_btn.pack(fill="x", pady=(8, 4))
+        ctl = ttk.Frame(bottom, style="Panel.TFrame")
+        ctl.pack(fill="x")
+        self.pause_btn = ttk.Button(ctl, text=t("pause"), command=self.toggle_pause)
+        self.pause_btn.pack(side="left", fill="x", expand=True)
+        self.cancel_btn = ttk.Button(ctl, text=t("cancel"), style="Danger.TButton", command=self.cancel_work)
+        self.cancel_btn.pack(side="left", fill="x", expand=True, padx=(4, 0))
+        copy = APP_COPYRIGHT if self.cfg["lang"] == "de" else APP_COPYRIGHT_EN
+        ttk.Label(bottom, text=copy, style="Muted.TLabel", wraplength=300, justify="left").pack(anchor="w", pady=(8, 0))
+        # scrollbarer Bereich oben
+        self.side_scroll = ScrollFrame(outer, self.c.panel)
+        side = self.side_scroll.inner
         ttk.Label(side, text=t("sources"), style="Section.TLabel").pack(anchor="w")
         self.src_list = self._listbox(side, 5)
         self.src_list.pack(fill="x", pady=(4, 2))
@@ -364,18 +564,7 @@ class App:
         self.rule_cb.current(self.rules.index(self.cfg["keep_rule"]) if self.cfg["keep_rule"] in self.rules else 0)
         self.rule_cb.pack(fill="x")
 
-        spacer = ttk.Frame(side, style="Panel.TFrame")
-        spacer.pack(fill="both", expand=True)
-        self.scan_btn = ttk.Button(side, text=t("start_scan"), style="Accent.TButton", command=self.start_scan)
-        self.scan_btn.pack(fill="x", pady=(8, 4))
-        ctl = ttk.Frame(side, style="Panel.TFrame")
-        ctl.pack(fill="x")
-        self.pause_btn = ttk.Button(ctl, text=t("pause"), command=self.toggle_pause)
-        self.pause_btn.pack(side="left", fill="x", expand=True)
-        self.cancel_btn = ttk.Button(ctl, text=t("cancel"), style="Danger.TButton", command=self.cancel_work)
-        self.cancel_btn.pack(side="left", fill="x", expand=True, padx=(4, 0))
-        copy = APP_COPYRIGHT if self.cfg["lang"] == "de" else APP_COPYRIGHT_EN
-        ttk.Label(side, text=copy, style="Muted.TLabel", wraplength=310, justify="left").pack(anchor="w", pady=(10, 0))
+        ttk.Frame(side, style="Panel.TFrame", height=6).pack(fill="x")
 
     def _build_main(self, main: ttk.Frame) -> None:
         t, c = self.tr, self.c
@@ -404,7 +593,6 @@ class App:
         ttk.Label(bar, textvariable=self.summary_var, foreground=c.accent).pack(side="right")
 
         paned = ttk.PanedWindow(main, orient="vertical")
-        paned.pack(fill="both", expand=True)
 
         tree_frame = ttk.Frame(paned)
         cols = ("folder", "size", "date", "action")
@@ -432,7 +620,7 @@ class App:
         self.tree.bind("<Double-1>", lambda e: self.set_original())
         self.tree.bind("<space>", lambda e: (self.toggle_keep(), "break")[1])
         self.tree.bind("<Return>", lambda e: (self.set_original(), "break")[1])
-        paned.add(tree_frame, weight=3)
+        paned.add(tree_frame, weight=4)
 
         cmp_frame = ttk.Frame(paned, padding=(0, 8, 0, 0))
         self.cards = [self._build_card(cmp_frame, t("original"), c.green),
@@ -440,7 +628,6 @@ class App:
         paned.add(cmp_frame, weight=2)
 
         acts = ttk.Frame(main, padding=(0, 8, 0, 0))
-        acts.pack(fill="x")
         self.btn_setorig = ttk.Button(acts, text=t("set_original"), command=self.set_original)
         self.btn_setorig.pack(side="left")
         self.btn_toggle = ttk.Button(acts, text=t("toggle"), command=self.toggle_keep)
@@ -452,7 +639,9 @@ class App:
         self.btn_undo = ttk.Button(acts, text=t("undo_last"), command=self.undo_last)
         self.btn_undo.pack(side="right")
         acts2 = ttk.Frame(main, padding=(0, 6, 0, 0))
-        acts2.pack(fill="x")
+        acts2.pack(side="bottom", fill="x")
+        acts.pack(side="bottom", fill="x")
+        paned.pack(fill="both", expand=True)
         self.btn_arch_sel = ttk.Button(acts2, text=t("archive_selected"), command=lambda: self.archive(False))
         self.btn_arch_sel.pack(side="left")
         self.btn_arch_all = ttk.Button(acts2, text=t("archive_all"), style="Accent.TButton",
@@ -466,7 +655,7 @@ class App:
         tk.Label(fr, text=title, bg=c.panel, fg=color, font=self.f_bold, anchor="w").pack(fill="x", padx=10, pady=(8, 4))
         inner = tk.Frame(fr, bg=c.panel)
         inner.pack(fill="both", expand=True, padx=10)
-        canvas = tk.Canvas(inner, width=220, height=160, bg=c.field, highlightthickness=0)
+        canvas = tk.Canvas(inner, width=190, height=130, bg=c.field, highlightthickness=0)
         canvas.pack(side="left", anchor="n")
         info = tk.Label(inner, text="", bg=c.panel, fg=c.fg, font=self.f_small, justify="left",
                         anchor="nw", wraplength=380)
@@ -576,7 +765,7 @@ class App:
 
     def _start(self, kind: str, target, *args) -> bool:
         if self.busy_kind:
-            messagebox.showinfo(APP_NAME, self.tr("busy"), parent=self.root)
+            self.info(self.tr("busy"))
             return False
         self.control = Control()
         self._set_busy(kind)
@@ -632,7 +821,7 @@ class App:
                     self._reload_groups()
                 elif kind == "error":
                     self._finish("⚠ " + msg[2])
-                    messagebox.showerror(APP_NAME, self.tr("crash", err=msg[2]), parent=self.root)
+                    self.info(self.tr("crash", err=msg[2]), "error")
             if progress:
                 self._show_progress(progress)
         finally:
@@ -718,7 +907,7 @@ class App:
         opts = self._options()
         errs = validate_options(opts)
         if errs:
-            messagebox.showwarning(APP_NAME, "\n".join(self.tr.error(e) for e in errs), parent=self.root)
+            self.info("\n".join(self.tr.error(e) for e in errs), "warning")
             return
         self._scan(opts, None)
 
@@ -946,7 +1135,7 @@ class App:
         if m.get("state") == "archived":
             return
         if m.get("keep") and sum(1 for x in g["members"] if x.get("keep")) <= 1:
-            messagebox.showinfo(APP_NAME, self.tr("need_keeper"), parent=self.root)
+            self.info(self.tr("need_keeper"))
             return
         m["keep"] = not m.get("keep")
         if self.session_id is not None:
@@ -974,7 +1163,7 @@ class App:
     def archive(self, all_groups: bool) -> None:
         if self.busy_kind or not self.groups or self.session_id is None:
             if not self.groups:
-                messagebox.showinfo(APP_NAME, self.tr("nothing_selected"), parent=self.root)
+                self.info(self.tr("nothing_selected"))
             return
         self._sync_cfg()
         if all_groups:
@@ -991,16 +1180,16 @@ class App:
         n = sum(1 for g in groups for m in g["members"] if not m.get("keep") and m.get("state", "open") == "open")
         size = sum(g["size"] for g in groups for m in g["members"] if not m.get("keep") and m.get("state", "open") == "open")
         if n == 0:
-            messagebox.showinfo(APP_NAME, self.tr("nothing_selected"), parent=self.root)
+            self.info(self.tr("nothing_selected"))
             return
         archive = self.cfg["archive"]
         errs = [e for e in validate_options(self._options()) if e.startswith(("err_no_archive", "err_source_in"))]
         if errs:
-            messagebox.showwarning(APP_NAME, "\n".join(self.tr.error(e) for e in errs), parent=self.root)
+            self.info("\n".join(self.tr.error(e) for e in errs), "warning")
             return
-        if not messagebox.askyesno(self.tr("confirm_archive_title"),
-                                   self.tr("confirm_archive", n=n, size=human_size(size, self.cfg["lang"]),
-                                           archive=archive), parent=self.root):
+        if not self.ask_yes_no(self.tr("confirm_archive_title"),
+                               self.tr("confirm_archive", n=n, size=human_size(size, self.cfg["lang"]),
+                                       archive=archive)):
             return
         sid = self.session_id
         verify = bool(self.cfg["verify_bytes"])
@@ -1023,9 +1212,9 @@ class App:
             return
         run = self._last_archive_run()
         if not run:
-            messagebox.showinfo(APP_NAME, self.tr("no_runs"), parent=self.root)
+            self.info(self.tr("no_runs"))
             return
-        if not messagebox.askyesno(APP_NAME, self.tr("undo_confirm", id=run["id"]), parent=self.root):
+        if not self.ask_yes_no(APP_NAME, self.tr("undo_confirm", id=run["id"])):
             return
         if run.get("session_id"):
             self.session_id = run["session_id"]
@@ -1042,7 +1231,7 @@ class App:
         runs = [r for r in self.store.runs_list("archive", 200)
                 if self.store.journal_entries(r["id"], (J_DONE,))]
         if not runs:
-            messagebox.showinfo(APP_NAME, self.tr("no_runs"), parent=self.root)
+            self.info(self.tr("no_runs"))
             return
         t, c = self.tr, self.c
         win = self._dialog(t("purge_title"), "760x520")
@@ -1060,10 +1249,8 @@ class App:
                 human_time(r["created"], self.cfg["lang"]), len(ent),
                 human_size(sum(e["size"] or 0 for e in ent), self.cfg["lang"]), r["archive"]))
             network = network or is_network_path(r["archive"])
-        tv.pack(fill="both", expand=True, padx=14)
         mode = tk.StringVar(value="perm" if network else "trash")
         f = ttk.Frame(win, style="Panel.TFrame", padding=14)
-        f.pack(fill="x")
         rb = ttk.Radiobutton(f, text=t("purge_trash"), value="trash", variable=mode)
         rb.pack(anchor="w")
         if network:
@@ -1076,7 +1263,9 @@ class App:
         word = tk.StringVar()
         ttk.Entry(f, textvariable=word, width=20).pack(anchor="w")
         btns = ttk.Frame(win, style="Panel.TFrame", padding=(14, 0, 14, 14))
-        btns.pack(fill="x")
+        btns.pack(side="bottom", fill="x")
+        f.pack(side="bottom", fill="x")
+        tv.pack(fill="both", expand=True, padx=14)
         go = ttk.Button(btns, text=t("purge_go"), style="Accent.TButton")
         go.pack(side="right")
         ttk.Button(btns, text=t("close"), command=win.destroy).pack(side="right", padx=6)
@@ -1102,7 +1291,7 @@ class App:
     # ================================================================ Bericht
     def export_report(self) -> None:
         if not self.groups:
-            messagebox.showinfo(APP_NAME, self.tr("no_dupes"), parent=self.root)
+            self.info(self.tr("no_dupes"))
             return
         path = filedialog.asksaveasfilename(
             parent=self.root, defaultextension=".html",
@@ -1117,13 +1306,34 @@ class App:
                 write_html(path, self.groups, self.session_stats, self.cfg["lang"])
             open_with_default_app(path)
         except OSError as exc:
-            messagebox.showerror(APP_NAME, str(exc), parent=self.root)
+            self.info(str(exc), "error")
 
     # ================================================================ Dialoge
+    def info(self, text: str, kind: str = "info", parent: tk.Misc | None = None) -> None:
+        dark_dialog(parent or self.root, self.c, self.f_normal, self.f_bold, APP_NAME, text, kind,
+                    (("ok", self.tr("ok")),), "ok", "ok")
+
+    def ask_yes_no(self, title: str, text: str) -> bool:
+        return dark_dialog(self.root, self.c, self.f_normal, self.f_bold, title, text, "question",
+                           (("yes", self.tr("yes")), ("no", self.tr("no"))), "yes", "no") == "yes"
+
+    def ask_yes_no_cancel(self, title: str, text: str):
+        v = dark_dialog(self.root, self.c, self.f_normal, self.f_bold, title, text, "question",
+                        (("yes", self.tr("yes")), ("no", self.tr("no")), ("cancel", self.tr("btn_cancel"))),
+                        "yes", "cancel")
+        return {"yes": True, "no": False}.get(v)
+
     def _dialog(self, title: str, geometry: str) -> tk.Toplevel:
         win = tk.Toplevel(self.root)
         win.title(title)
         win.configure(bg=self.c.panel)
+        try:  # nicht groesser als der Bildschirm
+            gw, gh = (int(v) for v in geometry.split("x"))
+            gw = min(gw, int(self.root.winfo_screenwidth() * 0.95))
+            gh = min(gh, int(self.root.winfo_screenheight() * 0.88))
+            geometry = f"{gw}x{gh}"
+        except (ValueError, TypeError, tk.TclError):
+            pass
         win.geometry(geometry)
         win.transient(self.root)
         self._set_icon(win)
@@ -1158,11 +1368,14 @@ class App:
 
     def show_settings(self) -> None:
         if self.busy_kind:
-            messagebox.showinfo(APP_NAME, self.tr("busy"), parent=self.root)
+            self.info(self.tr("busy"))
             return
         c, t, cf = self.c, self.tr, self.cfg
-        win = self._dialog(t("settings"), "720x720")
-        fr = ttk.Frame(win, style="Panel.TFrame", padding=18)
+        win = self._dialog(t("settings"), "760x760")
+        btns = ttk.Frame(win, style="Panel.TFrame", padding=(18, 8, 18, 14))
+        btns.pack(side="bottom", fill="x")
+        sf = ScrollFrame(win, c.panel)
+        fr = ttk.Frame(sf.inner, style="Panel.TFrame", padding=18)
         fr.pack(fill="both", expand=True)
 
         ttk.Label(fr, text=t("set_general"), style="Section.TLabel").pack(anchor="w")
@@ -1204,12 +1417,10 @@ class App:
         ex.insert("1.0", "\n".join(cf["excludes"]))
         ex.pack(fill="x")
 
-        btns = ttk.Frame(fr, style="Panel.TFrame")
-        btns.pack(fill="x", pady=(14, 0))
 
         def clear_cache():
             self.store.cache_clear()
-            messagebox.showinfo(APP_NAME, "OK", parent=win)
+            self.info("OK", parent=win)
         ttk.Button(btns, text=t("set_clear_cache"), command=clear_cache).pack(side="left")
         ttk.Button(btns, text=t("set_open_data"), command=lambda: open_with_default_app(self.data_dir)).pack(side="left", padx=6)
 
@@ -1282,8 +1493,7 @@ class App:
             if open_n == 0:
                 self.store.run_finish(run["id"], "done", run.get("stats"))
                 continue
-            ans = messagebox.askyesnocancel(t("resume_run_title"), t("resume_run", id=run["id"], open=open_n),
-                                            parent=self.root)
+            ans = self.ask_yes_no_cancel(t("resume_run_title"), t("resume_run", id=run["id"], open=open_n))
             if ans is None:
                 continue
             if ans:
@@ -1305,7 +1515,7 @@ class App:
         if not ses:
             return
         if ses["phase"] == "scanning":
-            if messagebox.askyesno(t("resume_scan_title"), t("resume_scan"), parent=self.root):
+            if self.ask_yes_no(t("resume_scan_title"), t("resume_scan")):
                 self.session_id = ses["id"]
                 self._scan(ScanOptions.from_dict(ses["options"]), ses["id"])
             else:
@@ -1322,7 +1532,13 @@ class App:
     def on_close(self) -> None:
         try:
             self._sync_cfg()
-            self.cfg["geometry"] = self.root.geometry()
+            try:
+                zoomed = str(self.root.state()) == "zoomed"
+            except tk.TclError:
+                zoomed = False
+            self.cfg["maximized"] = zoomed
+            if not zoomed:
+                self.cfg["geometry"] = self.root.geometry()
             config.save(self.data_dir, self.cfg)
         except Exception:
             pass
@@ -1346,7 +1562,7 @@ class App:
         text = "".join(traceback.format_exception(exc, val, tb))
         log.error("Unbehandelter Fehler in der Oberflaeche:\n%s", text)
         try:
-            messagebox.showerror(APP_NAME, self.tr("crash", err=f"{exc.__name__}: {val}"), parent=self.root)
+            self.info(self.tr("crash", err=f"{exc.__name__}: {val}"), "error")
         except Exception:
             pass
 
@@ -1395,5 +1611,8 @@ def run_gui(store: Store, data_dir: str) -> None:
 def already_running_message(lang: str = "de") -> None:
     root = tk.Tk()
     root.withdraw()
-    messagebox.showwarning(APP_NAME, Tr(lang)("already_running"))
+    c = Palette(False)
+    f = ("Segoe UI", 10) if IS_WIN else ("Helvetica", 13)
+    dark_dialog(root, c, f, (f[0], f[1], "bold"), APP_NAME, Tr(lang)("already_running"), "warning",
+                (("ok", "OK"),), "ok", "ok")
     root.destroy()

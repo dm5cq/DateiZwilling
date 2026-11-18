@@ -26,7 +26,8 @@ DEFAULTS: dict = {
     "high_contrast": False,
     "font_scale": 1.0,
     "tts": False,
-    "geometry": "1320x840",
+    "geometry": "",
+    "maximized": False,
 }
 
 

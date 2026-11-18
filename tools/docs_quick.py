@@ -6,6 +6,8 @@ from pdfkit_dz import build  # noqa: E402
 ROOT = sys.argv[1]
 ICON = os.path.join(ROOT, "assets", "icon.png")
 OUT = os.path.join(ROOT, "docs")
+PDF = os.path.join(ROOT, "Dokumentation")
+os.makedirs(PDF, exist_ok=True)
 FOOT_DE = "© 2026 Stefan J. Kaiser DM5CQ / OE8KKS · Idee und Konzept · Umsetzung: Claude (Anthropic), 18.11.2026"
 FOOT_EN = "© 2026 Stefan J. Kaiser DM5CQ / OE8KKS · Idea and concept · Implementation: Claude (Anthropic), 18.11.2026"
 
@@ -85,6 +87,7 @@ de = [
     ("ul", [
         "Sprache Deutsch/English, hoher Kontrast, Schriftgröße 90–200 %, Sprachausgabe für Meldungen.",
         "Byte-für-Byte-Vergleich vor dem Verschieben (empfohlen, Standard).",
+        "Das Fenster passt sich jeder Bildschirmgröße an; die Scan-Knöpfe bleiben immer sichtbar, die Seitenleiste lässt sich bei kleinen Bildschirmen mit dem Mausrad scrollen.",
         "Parallele Lesevorgänge: HDD/NAS 1–2, SSD 4–8.",
         "Mindestgröße, versteckte Dateien, Cloud-Platzhalter, Programm-Kataloge, Begleitdateien, Ausschlussmuster (z. B. <i>*.tmp</i>, <i>*/Cache/*</i>).",
     ]),
@@ -149,6 +152,7 @@ en = [
     ("ul", [
         "Language Deutsch/English, high contrast, font size 90–200 %, speech output for messages.",
         "Byte-by-byte comparison before moving (recommended, default).",
+        "The window adapts to any screen size; the scan buttons always stay visible, and the sidebar scrolls with the mouse wheel on small screens.",
         "Parallel reads: HDD/NAS 1–2, SSD 4–8.",
         "Minimum size, hidden files, cloud placeholders, program catalogs, sidecar files, exclude patterns (e.g. <i>*.tmp</i>, <i>*/Cache/*</i>).",
     ]),
@@ -159,8 +163,8 @@ en = [
     ("p", "Windows: start <i>DateiZwilling.exe</i> – no installation required. Settings, cache and logs are stored in the folder <i>DateiZwilling-Daten</i> next to the EXE (e.g. on a USB stick). SmartScreen may warn on first start: “More info → Run anyway”. macOS: right-click <i>DateiZwilling.app</i> → Open; allow “Full Disk Access” for external drives if needed."),
 ]
 
-build(os.path.join(OUT, "QuickGuide_DE.pdf"), "DateiZwilling – QuickGuide",
-      "Version 1.0.0 · Dateidubletten finden und sicher archivieren", de, FOOT_DE, ICON, "de")
-build(os.path.join(OUT, "QuickGuide_EN.pdf"), "DateiZwilling – Quick Guide",
-      "Version 1.0.0 · Find duplicate files and archive them safely", en, FOOT_EN, ICON, "en")
+build(os.path.join(PDF, "QuickGuide_DE.pdf"), "DateiZwilling – QuickGuide",
+      "Version 1.0.1 · Dateidubletten finden und sicher archivieren", de, FOOT_DE, ICON, "de")
+build(os.path.join(PDF, "QuickGuide_EN.pdf"), "DateiZwilling – Quick Guide",
+      "Version 1.0.1 · Find duplicate files and archive them safely", en, FOOT_EN, ICON, "en")
 print("quick ok")

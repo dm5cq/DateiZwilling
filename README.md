@@ -1,4 +1,4 @@
-# DateiZwilling 1.0.0
+# DateiZwilling 1.0.1
 
 **Inhaltsgleiche Dateien finden & sicher archivieren** – im Stil von BildZwilling.
 
@@ -39,7 +39,8 @@ DateiZwilling.py           Startpunkt
 dateizwilling/             Programmcode (scanner, archiver, state, gui, cli …)
 assets/                    Icons
 tests/                     automatische Tests (python -m unittest discover -s tests)
-docs/                      QuickGuide DE/EN, Technische Beschreibung DE/EN, Code-Review, Prompt
+Dokumentation/             PDF: QuickGuide DE/EN, Technische Beschreibung DE/EN
+docs/                      Code-Review, Prompt, Bilder
 build-exe.bat              Windows-Build
 build-macos.sh             macOS-Build
 ```

@@ -6,6 +6,8 @@ from pdfkit_dz import build  # noqa: E402
 ROOT = sys.argv[1]
 ICON = os.path.join(ROOT, "assets", "icon.png")
 OUT = os.path.join(ROOT, "docs")
+PDF = os.path.join(ROOT, "Dokumentation")
+os.makedirs(PDF, exist_ok=True)
 FOOT_DE = "© 2026 Stefan J. Kaiser DM5CQ / OE8KKS · Idee und Konzept · Umsetzung: Claude (Anthropic), 18.11.2026"
 FOOT_EN = "© 2026 Stefan J. Kaiser DM5CQ / OE8KKS · Idea and concept · Implementation: Claude (Anthropic), 18.11.2026"
 
@@ -13,6 +15,7 @@ prompt = open(os.path.join(OUT, "PROMPT.md"), encoding="utf-8").read()
 MSG1 = prompt.split("## Nachricht 1")[1].split("## Nachricht 2")[0].strip().lstrip("> ").strip()
 MSG2 = prompt.split("## Nachricht 2")[1].split("---")[0].strip().lstrip("> ").strip()
 N_TESTS = sys.argv[2]
+MSG3 = prompt.split("## Nachtrag 1.0.1")[1].strip().lstrip("> ").strip()
 
 STATE = ("planned ──rename (gleiches Laufwerk)──────────────────────► done\n"
          "   │\n"
@@ -62,6 +65,10 @@ REVIEW_DE = [
     ["R7", "Emoji außerhalb BMP in Tk 8.6", "durch BMP-Symbole ersetzt"],
     ["R8", "Speicherbedarf bei Millionen Dateien", "__slots__ für Dateieinträge"],
     ["R9", "Archiv-Fortschritt > 100 %", "Fortschritt nach Dateien"],
+    ["R10", "1.0.1: Native Windows-Meldungsfenster weiß", "Eigene dunkle Dialoge; Test verbietet native Meldungsfenster"],
+    ["R11", "1.0.1: Titelleiste des Info-Dialogs weiß", "DWM über Rahmenfenster, erneut nach Anzeigen + Neuzeichnen"],
+    ["R12", "1.0.1: Scan-Knopf erst im Vollbild sichtbar", "Fenster an Bildschirm angepasst, Knöpfe fest unten, Seitenleiste scrollbar"],
+    ["R13", "1.0.1: Weiße Checkboxen", "Indikatorfarben grau / orange mit weißem Haken"],
 ]
 REVIEW_EN = [
     ["R1", "Directory-entry timestamps differ from os.stat on network drives", "os.stat values for all candidates"],
@@ -73,6 +80,10 @@ REVIEW_EN = [
     ["R7", "Non-BMP emoji in Tk 8.6", "Replaced with BMP symbols"],
     ["R8", "Memory use with millions of files", "__slots__ for file records"],
     ["R9", "Archive progress > 100 %", "Progress by files"],
+    ["R10", "1.0.1: native Windows message boxes white", "Own dark dialogs; test forbids native message boxes"],
+    ["R11", "1.0.1: About dialog title bar white", "DWM via frame window, re-applied after mapping + redraw"],
+    ["R12", "1.0.1: scan button only visible when maximized", "Window fitted to screen, buttons anchored at bottom, scrollable sidebar"],
+    ["R13", "1.0.1: white check boxes", "Indicator colours grey / orange with white tick"],
 ]
 
 de = [
@@ -163,6 +174,8 @@ de = [
     ("quote", MSG1),
     ("h2", "Nachricht 2"),
     ("quote", MSG2),
+    ("h2", "Nachtrag zu Version 1.0.1"),
+    ("quote", MSG3),
     ("h2", "Abgeleitete Anforderungen"),
     ("table", ["Nr.", "Anforderung", "Umsetzung"], [
         ["A1", "Stil wie BildZwilling", "Dunkelgrau/Orange/Weiß, graue Titelleiste, Info-Dialog, DE/EN, Barrierefreiheit"],
@@ -265,6 +278,8 @@ en = [
     ("quote", MSG1),
     ("h2", "Message 2"),
     ("quote", MSG2),
+    ("h2", "Addendum for version 1.0.1"),
+    ("quote", MSG3),
     ("h2", "Derived requirements"),
     ("table", ["No.", "Requirement", "Implementation"], [
         ["A1", "Same style as BildZwilling", "Dark grey/orange/white, grey title bar, About dialog, DE/EN, accessibility"],
@@ -279,8 +294,8 @@ en = [
     ], [0.1, 0.38, 0.52]),
 ]
 
-build(os.path.join(OUT, "Technische_Beschreibung_DE.pdf"), "DateiZwilling – Technische Beschreibung",
-      "Version 1.0.0 · Architektur, Verfahren, Ausfallsicherheit, Code-Review, Prompt", de, FOOT_DE, ICON, "de")
-build(os.path.join(OUT, "Technical_Description_EN.pdf"), "DateiZwilling – Technical Description",
-      "Version 1.0.0 · Architecture, methods, fault tolerance, code review, prompt", en, FOOT_EN, ICON, "en")
+build(os.path.join(PDF, "Technische_Beschreibung_DE.pdf"), "DateiZwilling – Technische Beschreibung",
+      "Version 1.0.1 · Architektur, Verfahren, Ausfallsicherheit, Code-Review, Prompt", de, FOOT_DE, ICON, "de")
+build(os.path.join(PDF, "Technical_Description_EN.pdf"), "DateiZwilling – Technical Description",
+      "Version 1.0.1 · Architecture, methods, fault tolerance, code review, prompt", en, FOOT_EN, ICON, "en")
 print("tech ok")

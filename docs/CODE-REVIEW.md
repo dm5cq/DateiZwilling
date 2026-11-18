@@ -1,4 +1,4 @@
-# DateiZwilling 1.0.0 – Code-Review
+# DateiZwilling 1.0.1 – Code-Review
 
 **Schwerpunkte:** Sicherheit · Stabilität · Ausfallsicherheit
 **Datum:** 18.11.2026 · **Prüfer:** Claude (Anthropic)
@@ -27,6 +27,15 @@
 | R7 | Emoji außerhalb der Unicode-Grundebene in Schaltflächen | Darstellungsfehler unter Tk 8.6 | durch BMP-Symbole ersetzt |
 | R8 | Hoher Speicherbedarf bei Millionen Dateien | Absturz bei sehr großen Laufwerken | `FileRec` mit `__slots__` (≈ 40 % weniger Speicher) |
 | R9 | Fortschrittsanzeige beim Archivieren lief über 100 % (Verifikations-Lesevorgänge) | Irreführende Anzeige | Archiv-Fortschritt nach Dateien statt Bytes |
+
+### Nachtrag 1.0.1 (Rückmeldung aus dem ersten Windows-Test)
+
+| # | Fund | Behebung |
+|---|---|---|
+| R10 | Native Windows-Meldungsfenster weiß | eigene dunkle Dialoge (`dark_dialog`), Test prüft, dass kein natives Meldungsfenster mehr verwendet wird |
+| R11 | Titelleiste der Dialoge (Info) blieb weiß | DWM-Attribute über das Rahmenfenster (`wm frame`), erneut nach dem Anzeigen + Neuzeichnen (`SWP_FRAMECHANGED`) |
+| R12 | Scan-Knopf erst im Vollbild sichtbar | Fenster an Bildschirm angepasst, Steuerknöpfe fest unten, Seitenleiste scrollbar |
+| R13 | Weiße Checkboxen | Indikatorfarben für das clam-Theme gesetzt |
 
 ## 3. Sicherheitsprinzipien im Code
 
