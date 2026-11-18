@@ -1,0 +1,5 @@
+# Laufzeit: nur Python-Standardbibliothek (tkinter, sqlite3, hashlib).
+# Optional fuer Bildvorschau:
+pillow>=10.0
+# Build:
+pyinstaller>=6.3

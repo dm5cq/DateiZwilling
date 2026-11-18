@@ -1,0 +1,9 @@
+DateiZwilling – Original-Prompt
+Idee und Konzept: Stefan J. Kaiser DM5CQ / OE8KKS
+Umsetzung: Claude (Anthropic), 18.11.2026
+
+[Nachricht 1]
+Ich benötige eine App im gleichen Stiel wie BildZwilling die App soll DateiZwilling heissen! Sie soll genau so zuferlässig verzeichnisse nach Dateidubletten analysieren und diese in ein definiertes Archiv Verzeichnis verschieben. Es wird zueerst nichts gelöscht. Die Dateipfade müssen im Archiv genau so wieder abgebildet sein. Es müssen alle gängigen Dateiformate untersützt werden. Angefangen von den Office Anwendugen Word Excel powerpoint Access, pub
+
+[Nachricht 2]
+publisher, alles Office Derivate, Zusätzlich natürlich auch alle Bilddateien wie im BildZwilling und zusätzlich noch PDF oder die ADOBE Suite oder die Files von Affinity Suite oder Capture One Kurz um ein Bereinigungs tool für vergessene gleiche Dateiinhalte. Nutzbar auch als portable.Exe oder dann auch zum compailieren für MacOS. Mach dnn auch immer ein Code Review auf Sicherheit, stabilität und ausfallsicherheit. Wenn die App crashen sollte muss es an der aufgehörten position wieder weiter gehen usw. Erstelle eine QuickDoku als PDF in Deutsch und in English. Die Doku zur Tschnischen Beschreibung soll auch den Promt enthalten,. Zusätzlich noch den Promt separat exportieren. Alles als Zip Das Layout wie die BildZwilling App - Leg los!
