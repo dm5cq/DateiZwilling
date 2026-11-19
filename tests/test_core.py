@@ -174,8 +174,10 @@ class ArchiveTests(Base):
             self.assertEqual(fh.read(), self.big)
         self.assertTrue(os.path.isfile(os.path.join(self.src1, "Vertrag.docx")))
         self.assertTrue(os.path.isfile(os.path.join(self.src2, "anders.docx")))
-        manifests = os.listdir(os.path.join(self.arch, "_DateiZwilling"))
+        manifests = [f for f in os.listdir(os.path.join(self.arch, "_DateiZwilling")) if f.endswith(".csv")]
         self.assertEqual(len(manifests), 1)
+        # S4: Datenbanksicherung liegt im Archiv
+        self.assertTrue(os.path.isfile(os.path.join(self.arch, "_DateiZwilling", "DateiZwilling-Datenbank.sqlite")))
 
     def test_hash_only_mode(self):
         _, _, _, stats = self.archive(verify=False)
@@ -232,7 +234,7 @@ class ArchiveTests(Base):
         self.assertEqual(stats["done"], 3)
         self.assertTrue(os.path.exists(os.path.join(self.src2, "Ordner A", "Vertrag Kopie.docx")))
         self.assertTrue(all(e["state"] == J_UNDONE for e in self.store.journal_entries(rid)))
-        left = [f for _, _, fs_ in os.walk(self.arch) for f in fs_ if not f.endswith(".csv")]
+        left = [f for d, _, fs_ in os.walk(self.arch) for f in fs_ if "_DateiZwilling" not in d]
         self.assertEqual(left, [])
 
     def test_purge_requires_keeper(self):

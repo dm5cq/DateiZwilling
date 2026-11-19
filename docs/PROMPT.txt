@@ -1,4 +1,4 @@
-DateiZwilling – Original-Prompt
+DateiZwilling – Original-Prompt (Version 2.0.0)
 Idee und Konzept: Stefan J. Kaiser DM5CQ / OE8KKS
 Umsetzung: Claude (Anthropic), 18.11.2026
 
@@ -10,3 +10,9 @@ publisher, alles Office Derivate, Zusätzlich natürlich auch alle Bilddateien w
 
 [Nachtrag 1.0.1]
 und über das INFO ist die Menüzeile in Weiss dargesteltl es soll alles in Dunkelgrau mit wiesserschrift und orangen akzenten dargestellt werden. - Die PDF Dukomente fehlen noch. die Fenster und Programmdatei passen nicht immer - es muss zuerst auf Vollbild gegangen werden damit der Starte Scan Button erscheint. dass sollte alles sichtbar sien - oder dynamisch skaliert. ggf. damit es gut aussiehe. Die Weissen Checkboxen sollten grau mit weiss oder orange sein
+
+[Nachtrag 2.0 – Info-Dialog und Vorschläge]
+kürze den Text hier - das ist unübersichtlich mach es professioneller zudem ist unter der Text gequetscht. Idee & Konzept Stefan J. Kaiser Hinweis auf GNU3 lizenz usw was da hinen muss auch ein Haftungsausschluß beim verwneden der App! Welche Verbesserungen und im Codereview sihst du auch in punkto sicherheit udn stabilität etc. befor du es umsetzt bitte zuerst Vorschleäge ich gebe dann den nächsten Entwicklungsschritt 2.0 frei
+
+[Freigabe 2.0]
+Empfehlung plus alles andere umsetzten! auch mit einbauen 3D Druck dateien wie STL etc.

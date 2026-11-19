@@ -8,8 +8,8 @@ ICON = os.path.join(ROOT, "assets", "icon.png")
 OUT = os.path.join(ROOT, "docs")
 PDF = os.path.join(ROOT, "Dokumentation")
 os.makedirs(PDF, exist_ok=True)
-FOOT_DE = "© 2026 Stefan J. Kaiser DM5CQ / OE8KKS · Idee und Konzept · Umsetzung: Claude (Anthropic), 18.11.2026"
-FOOT_EN = "© 2026 Stefan J. Kaiser DM5CQ / OE8KKS · Idea and concept · Implementation: Claude (Anthropic), 18.11.2026"
+FOOT_DE = "© 2026 Stefan J. Kaiser DM5CQ / OE8KKS · Idee & Konzept · Umsetzung: Claude (Anthropic) · GNU GPL v3"
+FOOT_EN = "© 2026 Stefan J. Kaiser DM5CQ / OE8KKS · Idea & concept · Implementation: Claude (Anthropic) · GNU GPL v3"
 
 FORMATS_DE = [
     ["Office", "Word (doc, docx, docm, dot, dotx, rtf), Excel (xls, xlsx, xlsm, xlsb, xlt, csv), PowerPoint (ppt, pptx, pps, ppsx, pot, potx), Access (mdb, accdb, accde), Publisher (pub), Visio (vsd, vsdx), OneNote (one), Project (mpp), Outlook (msg, oft), LibreOffice/OpenOffice (odt, ods, odp, odg …), Apple iWork (pages, numbers, key), WPS"],
@@ -19,6 +19,7 @@ FORMATS_DE = [
     ["Adobe", "psd, psb, ai, indd, idml, aep, prproj, xd, fla, sesx, abr, ase, xmp, dcp …"],
     ["Affinity", "af (Affinity 3), afphoto, afdesign, afpub, aftemplate, afpalette, afbrushes, afassets"],
     ["Capture One", "cos, cop, costyle, costylepack, coplate (Kataloge/Sitzungsdatenbanken sind geschützt)"],
+    ["3D-Druck & CAD", "STL, 3MF, OBJ, AMF, PLY, STEP/STP, IGES, G-Code/GCO/BGCode, Harzdruck (CTB, Photon, PWMX, Lychee, SL1), Slicer-Projekte (Prusa, Orca, Bambu, Cura), FreeCAD, Fusion 360 (F3D), OpenSCAD, Blender, SketchUp, SolidWorks, Inventor, DWG/DXF"],
     ["Weitere", "Video, Audio, Archive/Installer, Text/Code – und jede andere Datei (Inhaltsvergleich)"],
 ]
 FORMATS_EN = [
@@ -29,6 +30,7 @@ FORMATS_EN = [
     ["Adobe", "psd, psb, ai, indd, idml, aep, prproj, xd, fla, sesx, abr, ase, xmp, dcp …"],
     ["Affinity", "af (Affinity 3), afphoto, afdesign, afpub, aftemplate, afpalette, afbrushes, afassets"],
     ["Capture One", "cos, cop, costyle, costylepack, coplate (catalogs/session databases are protected)"],
+    ["3D printing & CAD", "STL, 3MF, OBJ, AMF, PLY, STEP/STP, IGES, G-code/GCO/BGCode, resin (CTB, Photon, PWMX, Lychee, SL1), slicer projects (Prusa, Orca, Bambu, Cura), FreeCAD, Fusion 360 (F3D), OpenSCAD, Blender, SketchUp, SolidWorks, Inventor, DWG/DXF"],
     ["More", "video, audio, archives/installers, text/code – and any other file (content comparison)"],
 ]
 
@@ -49,7 +51,9 @@ de = [
         ["8", "Archivieren", "Ausgewählte Gruppen oder alle sichtbaren Duplikate ins Archiv verschieben."],
         ["9", "Rückgängig / Bereinigen", "Letzte Archivierung zurückholen (Strg+Z). Bereinigen entfernt geprüfte Archivdateien erst nach Freigabe."],
         ["10", "Statuszeile / Protokoll", "Fortschritt, Geschwindigkeit, Restzeit und ausklappbares Protokoll."],
+        ["11", "Kopfleiste", "Archiv (Läufe ansehen, einzelne Dateien wiederherstellen, Archiv importieren), Statistik, Zeitplan, Einstellungen, Info, Sprache DE/EN."],
     ], [0.07, 0.25, 0.68]),
+    ("p", "Über der Liste wählst du die <b>Ansicht</b>: <i>Identische Dateien</i>, <i>Doppelte Ordner</i> (ganze Ordner mit gleichem Inhalt als Block) oder <i>Nahezu gleiche Dokumente</i> (gleicher Text, z. B. nur neu gespeichert). Große Ergebnisse werden seitenweise angezeigt (◀ ▶)."),
     ("h1", "In 5 Schritten aufräumen"),
     ("ol", [
         "<b>Quellordner hinzufügen</b> – z. B. <i>D:\\Dokumente</i>, <i>E:\\Sicherung</i>, ein NAS-Laufwerk oder den pCloud-/OneDrive-Ordner. Den „wichtigsten“ Ordner nach oben schieben.",
@@ -72,11 +76,13 @@ de = [
         "<b>Nur verschieben:</b> Duplikate werden ins Archiv verschoben, nicht gelöscht.",
         "<b>Doppelte Prüfung:</b> Ist das Original inzwischen geändert oder verschwunden, bleibt das Duplikat stehen.",
         "<b>Rückgängig:</b> „Letzte Archivierung rückgängig“ (Strg+Z) bringt alles an den Originalort zurück.",
-        "<b>Bereinigen nur mit Freigabe:</b> Läufe auswählen, <b>LÖSCHEN</b> eintippen – bevorzugt in den Papierkorb. Eine Archivdatei wird nur entfernt, wenn ihr Original noch existiert.",
+        "<b>Bereinigen nur mit Freigabe:</b> Läufe auswählen, <b>LÖSCHEN</b> eintippen – bevorzugt in den Papierkorb. Eine Archivdatei wird nur entfernt, wenn ihr Original noch existiert <b>und Byte für Byte gleich ist</b>.",
+        "<b>Einzelne Dateien zurückholen:</b> im Fenster <b>Archiv</b> Dateien markieren → „Ausgewählte wiederherstellen“. Nach einem PC-Wechsel: „Archiv importieren“.",
+        "<b>Warnungen:</b> Archiv in einem OneDrive-/pCloud-/Nextcloud-Ordner, ganzes Laufwerk oder Systemordner als Quelle, zu wenig Speicherplatz, FAT32-Laufwerk bei Dateien über 4 GB.",
         "<b>Geschützt:</b> Systemordner, Programm-Bibliotheken (Lightroom, Fotos, Capture One, Final Cut …), Outlook-PST, geöffnete Office-Dokumente, Verknüpfungen und Cloud-Platzhalter (es wird nichts aus der Cloud heruntergeladen).",
     ]),
     ("h1", "Absturz oder Stromausfall?"),
-    ("p", "Einfach DateiZwilling neu starten. Halbfertige Schritte werden automatisch sauber abgeschlossen oder zurückgerollt. Danach fragt die App, ob der unterbrochene Lauf <b>an der Abbruchstelle fortgesetzt</b> werden soll. Ein abgebrochener Scan liest bereits geprüfte Dateien nicht noch einmal (Prüfsummen-Cache). Ist die Archiv-Festplatte nicht angeschlossen, wartet der Lauf, bis sie wieder da ist."),
+    ("p", "Einfach DateiZwilling neu starten. Halbfertige Schritte werden automatisch sauber abgeschlossen oder zurückgerollt. Danach fragt die App, ob der unterbrochene Lauf <b>an der Abbruchstelle fortgesetzt</b> werden soll. Ein abgebrochener Scan liest bereits geprüfte Dateien nicht noch einmal (Prüfsummen-Cache). Wird ein USB- oder Netzlaufwerk während des Laufs getrennt, zeigt die Statuszeile „Warte auf Laufwerk …“ und es geht automatisch weiter, sobald es wieder erreichbar ist. Während eines Laufs geht der PC nicht in den Standby."),
     ("h1", "Tastenkürzel"),
     ("table", ["Taste", "Funktion"], [
         ["F5", "Scan starten"], ["Leertaste", "Datei behalten / archivieren umschalten"],
@@ -88,14 +94,27 @@ de = [
         "Sprache Deutsch/English, hoher Kontrast, Schriftgröße 90–200 %, Sprachausgabe für Meldungen.",
         "Byte-für-Byte-Vergleich vor dem Verschieben (empfohlen, Standard).",
         "Das Fenster passt sich jeder Bildschirmgröße an; die Scan-Knöpfe bleiben immer sichtbar, die Seitenleiste lässt sich bei kleinen Bildschirmen mit dem Mausrad scrollen.",
-        "Parallele Lesevorgänge: HDD/NAS 1–2, SSD 4–8.",
+        "Parallele Lesevorgänge: 0 = automatisch (HDD 1, Netz 2, SSD 4).",
+        "<b>Ordnerregeln:</b> „Bevorzugt als Original“ (z. B. NAS\\Fotos) und „Nie als Original“ (z. B. Downloads).",
+        "Doppelte Ordner erkennen, nahezu gleiche Dokumente, leere Ordner nach dem Archivieren entfernen, Berichte anonymisieren, <b>Diagnose exportieren</b>.",
+        "Ordner lassen sich per <b>Drag & Drop</b> auf die Listen ziehen.",
         "Mindestgröße, versteckte Dateien, Cloud-Platzhalter, Programm-Kataloge, Begleitdateien, Ausschlussmuster (z. B. <i>*.tmp</i>, <i>*/Cache/*</i>).",
+    ]),
+    ("h1", "Archiv, Statistik, Zeitplan"),
+    ("ul", [
+        "<b>Archiv:</b> alle Läufe mit Dateien, Suche, einzelne Dateien oder ganze Läufe zurückholen, unterbrochene Läufe fortsetzen, Archiv importieren.",
+        "<b>Statistik:</b> wie viel Platz Duplikate je Kategorie (Office, RAW, 3D-Druck …) belegen – auch im HTML-Bericht.",
+        "<b>Zeitplan:</b> täglicher oder wöchentlicher Bericht über die Windows-Aufgabenplanung bzw. macOS. Es wird dabei nie etwas verschoben oder gelöscht.",
+        "<b>Vorschau:</b> Fotos, PDF (erste Seite), Word/Excel/PowerPoint, RAW, Videos, <b>STL/OBJ als 3D-Ansicht</b>, 3MF- und G-Code-Vorschaubilder.",
     ]),
     ("h1", "Unterstützte Dateien"),
     ("p", "Da der <b>Inhalt</b> verglichen wird, funktioniert DateiZwilling mit <b>jedem</b> Dateiformat. Die Kategorien dienen zum Filtern:"),
     ("table", ["Kategorie", "Beispiele"], FORMATS_DE, [0.2, 0.8]),
     ("h1", "Start & portabler Betrieb"),
     ("p", "Windows: <i>DateiZwilling.exe</i> starten – keine Installation nötig. Einstellungen, Cache und Protokolle liegen im Ordner <i>DateiZwilling-Daten</i> neben der EXE (z. B. auf einem USB-Stick). Beim ersten Start warnt SmartScreen ggf.: „Weitere Informationen → Trotzdem ausführen“. macOS: <i>DateiZwilling.app</i> per Rechtsklick → Öffnen; für externe Laufwerke ggf. „Festplattenvollzugriff“ erlauben."),
+    ("h1", "Lizenz und Haftungsausschluss"),
+    ("p", "Idee & Konzept: Stefan J. Kaiser DM5CQ / OE8KKS · Umsetzung: Claude (Anthropic) · Lizenz: GNU General Public License v3.0."),
+    ("note", "Die Nutzung von DateiZwilling erfolgt auf eigene Gefahr. Die Software wird ohne jegliche Gewährleistung bereitgestellt (GNU GPL v3, Abschnitte 15 und 16). Soweit gesetzlich zulässig, haftet der Autor nicht für Datenverlust, Datenbeschädigung oder sonstige Schäden, die aus der Nutzung entstehen. Vor dem Bereinigen des Archivs wird eine aktuelle Datensicherung dringend empfohlen."),
 ]
 
 en = [
@@ -115,7 +134,9 @@ en = [
         ["8", "Archive", "Move selected groups or all visible duplicates into the archive."],
         ["9", "Undo / clean up", "Restore the last archiving run (Ctrl+Z). Clean up removes reviewed archive files only after release."],
         ["10", "Status bar / log", "Progress, speed, remaining time and a collapsible log."],
+        ["11", "Header", "Archive (view runs, restore single files, import an archive), statistics, schedule, settings, about, language DE/EN."],
     ], [0.07, 0.25, 0.68]),
+    ("p", "Above the list you choose the <b>view</b>: <i>Identical files</i>, <i>Duplicate folders</i> (whole folders with identical content as one block) or <i>Near-identical documents</i> (same text, e.g. only re-saved). Large results are shown page by page (◀ ▶)."),
     ("h1", "Clean up in 5 steps"),
     ("ol", [
         "<b>Add source folders</b> – e.g. <i>D:\\Documents</i>, <i>E:\\Backup</i>, a NAS drive or your pCloud/OneDrive folder. Move the most important folder to the top.",
@@ -138,11 +159,13 @@ en = [
         "<b>Move only:</b> duplicates are moved to the archive, not deleted.",
         "<b>Double check:</b> if the original has changed or disappeared in the meantime, the duplicate stays where it is.",
         "<b>Undo:</b> “Undo last archiving” (Ctrl+Z) moves everything back to its original location.",
-        "<b>Clean up only with release:</b> select runs, type <b>DELETE</b> – recycle bin preferred. An archived file is only removed if its original still exists.",
+        "<b>Clean up only with release:</b> select runs, type <b>DELETE</b> – recycle bin preferred. An archived file is only removed if its original still exists <b>and is byte-identical</b>.",
+        "<b>Restore single files:</b> in the <b>Archive</b> window select files → “Restore selected”. After changing PCs: “Import archive”.",
+        "<b>Warnings:</b> archive inside a OneDrive/pCloud/Nextcloud folder, whole drive or system folder as source, not enough space, FAT32 drive for files over 4 GB.",
         "<b>Protected:</b> system folders, program libraries (Lightroom, Photos, Capture One, Final Cut …), Outlook PST, open Office documents, links and cloud placeholders (nothing is downloaded from the cloud).",
     ]),
     ("h1", "Crash or power failure?"),
-    ("p", "Simply restart DateiZwilling. Half-finished steps are completed or rolled back cleanly. The app then asks whether the interrupted run should <b>continue where it stopped</b>. An interrupted scan does not read already checked files again (checksum cache). If the archive drive is not connected, the run waits until it is back."),
+    ("p", "Simply restart DateiZwilling. Half-finished steps are completed or rolled back cleanly. The app then asks whether the interrupted run should <b>continue where it stopped</b>. An interrupted scan does not read already checked files again (checksum cache). If a USB or network drive is disconnected during a run, the status bar shows “Waiting for drive …” and the run continues automatically once it is back. The PC does not go to standby during a run."),
     ("h1", "Keyboard shortcuts"),
     ("table", ["Key", "Function"], [
         ["F5", "Start scan"], ["Space", "Toggle keep / archive"], ["Enter / double-click", "Set as original"],
@@ -153,18 +176,31 @@ en = [
         "Language Deutsch/English, high contrast, font size 90–200 %, speech output for messages.",
         "Byte-by-byte comparison before moving (recommended, default).",
         "The window adapts to any screen size; the scan buttons always stay visible, and the sidebar scrolls with the mouse wheel on small screens.",
-        "Parallel reads: HDD/NAS 1–2, SSD 4–8.",
+        "Parallel reads: 0 = automatic (HDD 1, network 2, SSD 4).",
+        "<b>Folder rules:</b> “Preferred as original” (e.g. NAS\\Photos) and “Never as original” (e.g. Downloads).",
+        "Detect duplicate folders, near-identical documents, remove empty folders after archiving, anonymize reports, <b>export diagnostics</b>.",
+        "Folders can be <b>dragged & dropped</b> onto the lists.",
         "Minimum size, hidden files, cloud placeholders, program catalogs, sidecar files, exclude patterns (e.g. <i>*.tmp</i>, <i>*/Cache/*</i>).",
+    ]),
+    ("h1", "Archive, statistics, schedule"),
+    ("ul", [
+        "<b>Archive:</b> all runs with their files, search, restore single files or whole runs, continue interrupted runs, import an archive.",
+        "<b>Statistics:</b> how much space duplicates take per category (Office, RAW, 3D printing …) – also in the HTML report.",
+        "<b>Schedule:</b> daily or weekly report via Windows Task Scheduler or macOS. Nothing is ever moved or deleted by it.",
+        "<b>Preview:</b> photos, PDF (first page), Word/Excel/PowerPoint, RAW, videos, <b>STL/OBJ as 3D view</b>, 3MF and G-code thumbnails.",
     ]),
     ("h1", "Supported files"),
     ("p", "Because the <b>content</b> is compared, DateiZwilling works with <b>every</b> file format. Categories are used for filtering:"),
     ("table", ["Category", "Examples"], FORMATS_EN, [0.2, 0.8]),
     ("h1", "Start & portable use"),
     ("p", "Windows: start <i>DateiZwilling.exe</i> – no installation required. Settings, cache and logs are stored in the folder <i>DateiZwilling-Daten</i> next to the EXE (e.g. on a USB stick). SmartScreen may warn on first start: “More info → Run anyway”. macOS: right-click <i>DateiZwilling.app</i> → Open; allow “Full Disk Access” for external drives if needed."),
+    ("h1", "License and disclaimer"),
+    ("p", "Idea & concept: Stefan J. Kaiser DM5CQ / OE8KKS · Implementation: Claude (Anthropic) · License: GNU General Public License v3.0."),
+    ("note", "You use DateiZwilling at your own risk. The software is provided without any warranty (GNU GPL v3, sections 15 and 16). To the extent permitted by law, the author is not liable for data loss, data corruption or any other damage resulting from its use. A current backup is strongly recommended before cleaning up the archive."),
 ]
 
 build(os.path.join(PDF, "QuickGuide_DE.pdf"), "DateiZwilling – QuickGuide",
-      "Version 1.0.1 · Dateidubletten finden und sicher archivieren", de, FOOT_DE, ICON, "de")
+      "Version 2.0.0 · Dateidubletten finden und sicher archivieren", de, FOOT_DE, ICON, "de")
 build(os.path.join(PDF, "QuickGuide_EN.pdf"), "DateiZwilling – Quick Guide",
-      "Version 1.0.1 · Find duplicate files and archive them safely", en, FOOT_EN, ICON, "en")
+      "Version 2.0.0 · Find duplicate files and archive them safely", en, FOOT_EN, ICON, "en")
 print("quick ok")

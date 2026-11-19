@@ -1,7 +1,23 @@
+# Python / Build
 __pycache__/
 *.pyc
 .venv/
 build/
 dist/
 *.spec
+build-lock.txt
+
+# Persoenliche Arbeitsdaten der App – NIE einchecken
 DateiZwilling-Daten/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.log
+*.lock
+einstellungen.json
+
+# Fertige Programme gehoeren in GitHub-Releases, nicht ins Repository
+*.exe
+*.dmg
+*.zip

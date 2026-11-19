@@ -1,85 +1,99 @@
-# DateiZwilling 1.0.1 – Code-Review
+# DateiZwilling 2.0.0 – Code-Review
 
 **Schwerpunkte:** Sicherheit · Stabilität · Ausfallsicherheit
 **Datum:** 18.11.2026 · **Prüfer:** Claude (Anthropic)
-**Umfang:** `dateizwilling/*.py`, `DateiZwilling.py`, Build-Skripte
+**Umfang:** alle Module in `dateizwilling/`, `DateiZwilling.py`, Build-Skripte, 52 automatische Tests
+(Die Funde R1–R13 aus Version 1.0/1.0.1 sind behoben und weiterhin durch Tests abgedeckt.)
 
 ## 1. Ergebnis in Kürze
 
 | Bereich | Bewertung | Kernaussage |
 |---|---|---|
-| Datensicherheit (kein Datenverlust) | ✅ gut | Keine Datei wird entfernt, bevor eine verifizierte Kopie existiert; das behaltene Original wird vor jedem Schritt erneut geprüft. |
-| Ausfallsicherheit / Fortsetzen | ✅ gut | Write-Ahead-Journal; Absturz per `kill -9` mitten im Kopieren getestet – Lauf wurde nach Neustart vollständig und inhaltsgleich beendet. |
-| Sicherheit (Angriffsfläche) | ✅ gut | Kein Netzwerkzugriff, keine Shell-Strings aus Dateinamen, SQL nur parametrisiert, HTML/CSV-Ausgaben maskiert. |
-| Stabilität | ✅ gut | Fehler einzelner Dateien stoppen den Lauf nicht; Abbruch/Pause jederzeit; Datenbank-Selbstprüfung beim Start. |
-| Oberfläche | ⚠ eingeschränkt geprüft | Ablauf über Rauchtest mit Tk-Attrappe geprüft; Darstellung muss unter Windows/macOS real angesehen werden. |
+| Datensicherheit | ✅ sehr gut | Kein Entfernen ohne verifizierte Kopie; vor dem endgültigen Löschen jetzt zusätzlich Byte-Vergleich Archivkopie ↔ Original (S1). |
+| Ausfallsicherheit | ✅ sehr gut | Write-Ahead-Journal, Datenbank-Sicherung im Archiv (S4), Warten statt Fehler bei getrenntem Laufwerk (ST2), Anhalten bei vollem Speicher (S2), kein Standby (ST1). Praxistest `kill -9` während der Kopie erneut bestanden. |
+| Sicherheit | ✅ gut | Keine Netzwerkzugriffe, keine Shell-Strings, SQL parametrisiert, HTML/CSV maskiert, Zip-Bomben-Grenze, XML ohne externe Entitäten, Diagnose und Berichte anonymisierbar. |
+| Stabilität / Skalierung | ✅ gut | Dateiliste auf Festplatte (Millionen Dateien), Seitenansicht statt Anzeigegrenze, ein Vorschau-Thread mit Verwerfen veralteter Anfragen, wöchentliche Datenbankpflege. |
+| Oberfläche | ⚠ eingeschränkt geprüft | Ablauf per Rauchtest mit Tk-Attrappe (inkl. Ordneransicht, Archiv-Browser, Statistik, Zeitplan); Darstellung bitte mit dem Testplan unter Windows prüfen. |
 
-## 2. Während des Reviews gefundene und behobene Punkte
+## 2. Umgesetzte Vorschläge 2.0
+
+### Sicherheit
+| # | Umsetzung | Test |
+|---|---|---|
+| S1 | `purge()` vergleicht Archivkopie und Original Byte für Byte (bei Textgruppen: Text-Fingerabdruck); bei Abweichung bleibt die Kopie | `test_s1_purge_compares_bytes` |
+| S2 | Vorab-Prüfung je Ziellaufwerk (Bedarf + 1 % + 200 MB) und Prüfung je Datei; bei Platzmangel `NeedsAttention` – Lauf bleibt offen | `test_s2_not_enough_space_pauses_run` |
+| S3 | FAT32: Dateien > 4 GB werden übersprungen; auf FAT/exFAT/NTFS werden ungültige Zeichen, Punkte/Leerzeichen am Ende und reservierte Namen ersetzt – Rückgängig stellt den Originalnamen wieder her | `test_s3_fat32_limit`, `test_s3_safe_names` |
+| S4 | Nach jedem Lauf Sicherung der Datenbank (SQLite-Backup-API, atomar) nach `_DateiZwilling/DateiZwilling-Datenbank.sqlite`; „Archiv importieren“ liest die CSV-Protokolle und legt Läufe an | `test_s4_import_archive_into_new_database` |
+| S5 | Einzelne Dateien wiederherstellen; Begleitdateien folgen automatisch | `test_s5_restore_single_file` |
+| S6 | Warnung, wenn das Archiv in OneDrive/pCloud/Nextcloud/ownCloud/Dropbox/Google Drive/iCloud/Synology Drive/Box/MEGA liegt | `test_cloud_and_risky_detection` |
+| S7 | Warnung bei Laufwerkswurzel, Benutzerordner, System-/Programmordnern als Quelle | dito |
+| S8 | Erstellungsdatum und Attribute werden bei Kopien über Laufwerksgrenzen übernommen (Windows) | `copy_windows_metadata` |
+| S9 | Versionsbereiche in `requirements.txt`, `build-lock.txt` mit exakten Ständen, SHA-256-Datei zur EXE/DMG, optionale Signatur (`DZ_SIGN_CERT`/`DZ_SIGN_PASS` bzw. `DZ_SIGN_ID`) | Build-Skripte |
+| S10 | Berichte (HTML/CSV) und Diagnose-Export ohne Benutzername/Benutzerordner | `test_f6_stats_and_anonymized_report` |
+
+### Stabilität
+| # | Umsetzung |
+|---|---|
+| ST1 | `KeepAwake`: `SetThreadExecutionState` (Windows) bzw. `caffeinate` (macOS) während Scan/Archivierung |
+| ST2 | Netz-/Gerätefehler oder nicht erreichbares Laufwerk → Status „Warte auf Laufwerk …“, automatisches Fortsetzen, jederzeit abbrechbar (`test_st2_*`) |
+| ST3 | Ein Vorschau-Thread; veraltete Anfragen werden verworfen, Bilder erst im GUI-Thread übernommen |
+| ST4 | `ScanTemp`: Dateiliste in temporärer SQLite-Datei; nur Kandidaten im Speicher; Ergebnisliste seitenweise (1000 Gruppen je Seite) |
+| ST5 | SSD/HDD/Netz-Erkennung → 4/1/2 Lesevorgänge („0 = automatisch“) |
+| ST6 | Wöchentlich: alte Sitzungen entfernen (letzte 10 bleiben), Cache-Obergrenze 3 Mio., `PRAGMA optimize`, `VACUUM` bei > 25 % freien Seiten; Schema-Migration 1 → 2 |
+| ST7 | `docs/TESTPLAN.md` + „Diagnose exportieren“ (Protokolle anonymisiert, Systeminfo) |
+
+## 3. Während des Reviews 2.0 gefundene und behobene Punkte
 
 | # | Fund | Risiko | Behebung |
 |---|---|---|---|
-| R1 | Zeitstempel aus Verzeichniseinträgen (scandir) können auf Netzlaufwerken von `os.stat` abweichen → alle Dateien würden als „geändert“ verworfen | Duplikate auf NAS nicht gefunden | Kandidaten erhalten Zeitstempel/Größe aus `os.stat`; Größenänderung → Datei wird übersprungen |
-| R2 | Archivlaufwerk (USB) beim Neustart nicht verbunden → Wiederherstellung hätte Schritte fälschlich als „Quelle fehlt“ markiert | Verlust der Rückgängig-Information | Wiederherstellung und Fortsetzen werden verschoben, bis das Archiv erreichbar ist (Test vorhanden) |
-| R3 | Geöffnete Office-Dokumente könnten auf macOS/SMB verschoben werden | Datenverlust beim Speichern im Programm | Sperrdateien `~$…` und `.~lock.…#` werden erkannt → Datei wird übersprungen (Test vorhanden) |
-| R4 | Cache-Logik: Schnell- und Voll-Prüfsumme konnten bei großen Dateien vermischt werden | übersehene Duplikate | Getrennte Behandlung kleiner/großer Dateien im Cache |
-| R5 | CSV-/Formel-Injektion (Dateiname beginnt mit `=`) beim Öffnen von Bericht/Manifest in Excel | Ausführung von Formeln | `csv_safe()` maskiert solche Werte |
-| R6 | Leck einer SQLite-Verbindung bei beschädigter Datenbank | Ressourcenleck | Verbindung wird bei Fehler geschlossen; defekte DB wird gesichert und neu angelegt |
-| R7 | Emoji außerhalb der Unicode-Grundebene in Schaltflächen | Darstellungsfehler unter Tk 8.6 | durch BMP-Symbole ersetzt |
-| R8 | Hoher Speicherbedarf bei Millionen Dateien | Absturz bei sehr großen Laufwerken | `FileRec` mit `__slots__` (≈ 40 % weniger Speicher) |
-| R9 | Fortschrittsanzeige beim Archivieren lief über 100 % (Verifikations-Lesevorgänge) | Irreführende Anzeige | Archiv-Fortschritt nach Dateien statt Bytes |
+| R14 | Beim Archivieren doppelter Ordner wurden auch Kopien derselben Datei **außerhalb** der Ordner archiviert | unerwartetes Verschieben | Gruppen werden auf die Dateien der gewählten Ordner (+ Original) beschränkt (Test vorhanden) |
+| R15 | Vorschau startete je Klick einen eigenen Thread | viele parallele Lesevorgänge | ein Worker-Thread, „neueste Anfrage gewinnt“ |
+| R16 | `%` in Pfaden wäre in der Zeitplan-Datei als Variable gelesen worden | falscher Pfad | `%` → `%%` |
+| R17 | Diagnose-Export hätte Protokolle mit vollständigen Pfaden enthalten | Datenschutz | Benutzerordner/-name werden ersetzt |
+| R18 | Ergebnisliste alter Datenbanken unverträglich mit „nahezu gleich“-Gruppen | Fehler nach Update | Migration legt nur die Ergebnisliste neu an, Archiv-Journal bleibt |
+| R19 | Kopfleiste mit sechs Knöpfen schob den Titel über die Knöpfe | Knöpfe abgeschnitten | Knöpfe zuerst platziert, Titel nimmt den Rest |
+| R20 | Ressourcenleck beim Lesen von `/sys/block/*/rotational` | Dateihandle | `with open(...)` |
 
-### Nachtrag 1.0.1 (Rückmeldung aus dem ersten Windows-Test)
+## 4. Sicherheitsprinzipien
 
-| # | Fund | Behebung |
-|---|---|---|
-| R10 | Native Windows-Meldungsfenster weiß | eigene dunkle Dialoge (`dark_dialog`), Test prüft, dass kein natives Meldungsfenster mehr verwendet wird |
-| R11 | Titelleiste der Dialoge (Info) blieb weiß | DWM-Attribute über das Rahmenfenster (`wm frame`), erneut nach dem Anzeigen + Neuzeichnen (`SWP_FRAMECHANGED`) |
-| R12 | Scan-Knopf erst im Vollbild sichtbar | Fenster an Bildschirm angepasst, Steuerknöpfe fest unten, Seitenleiste scrollbar |
-| R13 | Weiße Checkboxen | Indikatorfarben für das clam-Theme gesetzt |
+1. **Verschieben statt Löschen**, atomar auf gleichem Laufwerk, sonst Kopie → `fsync` → Rücklesen + BLAKE2b → Umbenennen → Quelle entfernen.
+2. **Zweifache Prüfung** beim Scan und vor dem Verschieben (Byte-Vergleich mit dem Original).
+3. **Nie überschreiben** (`Name (DZ2).ext`).
+4. **Freigabe vor dem Entfernen** mit Eingabe von LÖSCHEN plus Byte-Vergleich mit dem Original (S1).
+5. **Geschützt:** System-/Papierkorbordner, App-Bibliotheken, Programm-Kataloge, Symlinks/Junctions, Hardlinks, Cloud-Platzhalter, geöffnete Office-Dokumente, geschützte Ordner, Ordnerregeln.
+6. **Nahezu gleiche Dokumente** sind nicht bytegleich: eigene Ansicht, eigene Rückfrage, Text-Vergleich unmittelbar vor dem Verschieben und vor dem Bereinigen.
+7. **Zeitplan** erzeugt nur Berichte – nie Verschieben oder Löschen.
 
-## 3. Sicherheitsprinzipien im Code
-
-1. **Verschieben statt Löschen.** Gleiches Laufwerk: atomares `rename`. Anderes Laufwerk: Kopie in `*.dzpart` → `fsync` → Rücklesen + BLAKE2b-Vergleich → Umbenennen → erst dann Quelle entfernen. Lässt sich die Quelle nicht entfernen, wird die Kopie wieder gelöscht (kein Doppelzustand).
-2. **Zweifache Prüfung.** Scan: Größe + Schnell-Prüfsumme + BLAKE2b-256. Vor dem Verschieben (Standard): Byte-für-Byte-Vergleich mit dem behaltenen Original. Fehlt das Original oder weicht es ab, bleibt das Duplikat unangetastet.
-3. **Nie überschreiben.** Ist der Zielpfad im Archiv belegt, wird `Name (DZ2).ext` verwendet.
-4. **Freigabe vor dem Entfernen.** „Archiv bereinigen“ verlangt Auswahl der Läufe und Eingabe von LÖSCHEN; entfernt wird nur, wenn das Original in diesem Moment noch existiert. Netzlaufwerke werden erkannt (kein Papierkorb → deutlicher Hinweis).
-5. **Geschützte Bereiche.** System-/Papierkorbordner, App-Pakete und Bibliotheken (`.photoslibrary`, `.lrdata`, `.cocatalog`, `.fcpbundle` …), Programm-Kataloge (`.lrcat`, `.cocatalogdb`, `.pst` …), Symlinks/Junctions, Hardlinks, Cloud-Platzhalter und frei wählbare geschützte Ordner.
-6. **Begleitdateien.** XMP/COS/AAE/PP3 wandern mit dem Duplikat; eine nur über den Stamm zugeordnete XMP bleibt, wenn eine andere Datei gleichen Namens (RAW+JPEG) im Ordner bleibt.
-7. **Einzelinstanz.** Sperrdatei verhindert zwei gleichzeitige Instanzen auf derselben Datenbank.
-
-## 4. Ausfallsicherheit – Zustandsautomat je Datei
+## 5. Zustandsautomat je Datei
 
 ```
-planned ──rename──────────────────────────────► done
-   │
-   └─(anderes Laufwerk)─► copying ─verifiziert─► copied ─Quelle entfernt─► done
-                              │                     │
-                        Absturz: tmp löschen,  Absturz: Ziel prüfen,
-                        zurück auf planned     Quelle entfernen → done
+planned ──rename──────────────────────────────────────────► done
+   │  └─ Laufwerk weg → warten ─┐
+   │                            └─ wieder da → erneut versuchen
+   └─(anderes Laufwerk)─► Platz? ─nein─► Lauf angehalten (bleibt offen)
+                            │ja
+                            ▼
+                         copying ─verifiziert─► copied ─Quelle entfernt─► done
 ```
 
-* Jeder Zustand wird **vor** der Aktion in SQLite (WAL, `synchronous=FULL`) geschrieben.
-* Beim Start repariert `recover_all()` halbfertige Schritte; danach fragt die App, ob der Lauf an der Abbruchstelle fortgesetzt werden soll.
-* Scan: Prüfsummen werden spätestens alle 2 s in den Cache geschrieben – ein erneuter Scan liest bereits geprüfte Dateien nicht noch einmal.
-* Zusätzlich liegt im Archiv unter `_DateiZwilling/` je Lauf ein CSV-Manifest (Originalpfad, Archivpfad, Original, Prüfsumme) – selbst ohne Datenbank ist alles nachvollziehbar.
+## 6. Tests
 
-## 5. Automatische Tests (`python -m unittest discover -s tests`)
+`python -m unittest discover -s tests` – **52 Tests**:
 
-* **Scan:** Gruppenbildung, scheinbar gleiche Dateien (gleiche Größe, gleicher Anfang/Ende), leere Dateien, Office-Sperrdateien, Hardlinks, Symlinks, Archiv im Quellordner, verschachtelte Quellordner, Kategorien, geschützte Ordner, Regel „neueste“, Änderung während des Scans, Fortsetzen nach Abbruch mit Cache.
-* **Archiv:** exakte Pfadabbildung, Nur-Prüfsummen-Modus, Laufwerkswechsel (Kopie + Verifikation), Original geändert/gelöscht, nie überschreiben, Rückgängig, Bereinigen nur mit vorhandenem Original, Abbruch, geöffnete Dokumente, Archivlaufwerk offline.
-* **Absturz-Simulation:** vor dem ersten Schritt, nach Umbenennen vor Journal-Eintrag, während der Kopie, nach Kopie vor Löschen, defekte Kopie im Archiv, Ausnahme mitten im Lauf.
-* **Datenbank:** beschädigte Datenbank wird erkannt, gesichert und ersetzt.
-* **Oberfläche:** Rauchtest kompletter Ablauf (Scan → Auswahl → Original festlegen → Archivieren → Sprache → Dialoge → Rückgängig) und Wiederaufnahme der letzten Sitzung.
-* **Praxis-Test:** `kill -9` während des Kopierens auf ein anderes Dateisystem → Neustart → `resume`: alle 12 Dateien (480 MB) inhaltsgleich im Archiv, keine `.dzpart`-Reste.
+* `test_core.py` (29): Scan, Archiv, Pfadabbildung, Laufwerkswechsel, Rückgängig, Bereinigen, Schutzregeln, sechs Absturz-Szenarien, defekte Datenbank.
+* `test_v2.py` (19): S1–S5, S10, ST2 (Warten + Abbruch während des Wartens), ST4, ST6, leere Ordner, doppelte Ordner, Ordnerregeln, Statistik, Zeitplan-Befehl, nahezu gleiche Dokumente, 3D-Kategorie und Vorschauen (STL, G-Code, RAW).
+* `test_gui_smoke.py` (4): kompletter Oberflächenablauf, Wiederaufnahme der Sitzung, Ordneransicht mit Archivierung, dunkle Dialoge.
 
-## 6. Verbleibende Hinweise / bekannte Grenzen
+Praxistest: `kill -9` während einer Kopie auf ein anderes Dateisystem → `--cli resume` → alle 12 Dateien (480 MB) inhaltsgleich im Archiv, keine Reste, Datenbanksicherung im Archiv vorhanden.
 
-| Punkt | Erläuterung | Empfehlung |
-|---|---|---|
-| Oberfläche nicht auf echtem Bildschirm getestet | Die Testumgebung hat keine Tk-Anzeige; Logik ist getestet, Optik nicht | Erster Start unter Windows ansehen und Auffälligkeiten melden |
-| BildZwilling-Code nicht verfügbar | Das GitHub-Repository `dm5cq/BildZwilling` enthielt nur die Lizenz; der Stil wurde nach den bekannten Vorgaben nachgebaut | Bei Abweichungen Screenshot von BildZwilling schicken |
-| Kopie über Laufwerksgrenzen | Änderungsdatum und Rechte bleiben erhalten; Erstellungsdatum (Windows), NTFS-Alternate-Data-Streams und macOS-Finder-Tags nicht | Archiv möglichst auf dasselbe Laufwerk legen (dann atomares Umbenennen, alles bleibt erhalten) |
-| POSIX `rename` überschreibt | Zwischen Prüfung und Umbenennen könnte theoretisch eine Datei entstehen | durch Einzelinstanz-Sperre praktisch ausgeschlossen |
-| Papierkorb auf Netzlaufwerken | Windows/macOS haben dort keinen Papierkorb | App erkennt das und erlaubt nur bewusstes endgültiges Löschen |
-| Unsignierte EXE | Windows SmartScreen warnt beim ersten Start | „Weitere Informationen → Trotzdem ausführen“ oder eigene Signatur |
-| macOS-Datenschutz | Zugriff auf Schreibtisch/Dokumente/externe Laufwerke muss erlaubt werden | Systemeinstellungen → Datenschutz → Festplattenvollzugriff |
+## 7. Bekannte Grenzen
+
+| Punkt | Erläuterung |
+|---|---|
+| Oberfläche | Nur mit Tk-Attrappe getestet – bitte `docs/TESTPLAN.md` unter Windows durchgehen. |
+| Explorer-Miniaturen | Rückfall-Vorschau über die Windows-Shell ist ungetestet; bei Fehlern erscheint das Dateisymbol. |
+| Drag & Drop | benötigt `tkinterdnd2` (wird vom Build installiert); ohne das Paket funktioniert alles außer Ziehen & Ablegen. |
+| Video-Vorschau | benötigt `ffmpeg` im Suchpfad (optional). |
+| macOS-Metadaten | Finder-Tags werden bei Kopien über Laufwerksgrenzen nicht übertragen (Umbenennen auf gleichem Laufwerk erhält alles). |
+| Nahezu gleich | Nur für Formate mit zuverlässig auslesbarem Text (Word/Excel/PowerPoint, OpenDocument, PDF, Text/CSV/HTML). |
+| Haftungsausschluss | Formulierung „soweit gesetzlich zulässig“; keine Rechtsberatung. |

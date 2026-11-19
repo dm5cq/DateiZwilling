@@ -16,7 +16,14 @@ DEFAULTS: dict = {
     "categories": [],
     "keep_rule": "oldest",
     "prefer_source_order": True,
-    "workers": 2,
+    "workers": 0,
+    "prefer": [],
+    "avoid": [],
+    "find_folders": True,
+    "find_similar": False,
+    "remove_empty_dirs": True,
+    "anonymize": False,
+    "disclaimer_accepted": "",
     "verify_bytes": True,
     "move_sidecars": True,
     "include_hidden": False,
@@ -46,7 +53,7 @@ def load(folder: str) -> dict:
         pass
     except (OSError, ValueError) as exc:
         log.warning("Einstellungen nicht lesbar (%s) – Standardwerte", exc)
-    cfg["workers"] = max(1, min(16, int(cfg["workers"])))
+    cfg["workers"] = max(0, min(16, int(cfg["workers"])))
     cfg["font_scale"] = max(0.8, min(2.0, float(cfg["font_scale"])))
     return cfg
 

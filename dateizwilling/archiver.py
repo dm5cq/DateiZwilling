@@ -27,7 +27,10 @@ import time
 from .common import (CHUNK, Cancelled, Control, ProgressFn, RateMeter, csv_safe, files_equal,
                      hash_full)
 from . import formats
-from .pathutil import (archive_target, fs, is_within, norm_key, send_to_trash, unfs,
+from .content import text_fingerprint
+from .pathutil import (FAT32_MAX, FAT_TYPES, archive_target, copy_windows_metadata, disk_free,
+                       fs, fs_type, is_reachable, is_transient_error, is_within, needs_safe_names,
+                       norm_key, safe_relpath, same_device, send_to_trash, unfs, volume_root,
                        unique_path)
 from .state import (J_COPIED, J_COPYING, J_DONE, J_FAILED, J_PLANNED, J_PURGED, J_SKIPPED,
                     J_UNDONE, OPEN_STATES, Store)
@@ -37,8 +40,17 @@ log = logging.getLogger("dateizwilling.archive")
 MANIFEST_DIR = "_DateiZwilling"
 
 
+DB_BACKUP_NAME = "DateiZwilling-Datenbank.sqlite"
+SPACE_MARGIN = 200 * 1024 * 1024
+
+
 class CrossDevice(Exception):
     pass
+
+
+class NeedsAttention(OSError):
+    """Lauf angehalten (z. B. Speicher voll) – bleibt offen und kann spaeter
+    an derselben Stelle fortgesetzt werden."""
 
 
 def _is_cross_device(exc: OSError) -> bool:
@@ -90,6 +102,8 @@ class Archiver:
         self._meter = RateMeter()
         self._last_emit = 0.0
         self._ctx: dict = {}
+        self.empty_dir_roots: list[str] = []     # Quellordner: leere Unterordner danach entfernen
+        self._fs_cache: dict[str, str] = {}
 
     # ---------------------------------------------------------------- Hilfen
     def _emit(self, force: bool = False, **kw) -> None:
@@ -160,6 +174,7 @@ class Archiver:
             shutil.copystat(fs(src), fs(tmp), follow_symlinks=False)
         except OSError:
             pass
+        copy_windows_metadata(src, tmp)  # Erstellungsdatum + Attribute (Windows)
         return src_hash
 
     def _move(self, jid: int, src: str, dst: str, expected_hash: str | None) -> str | None:
@@ -180,6 +195,14 @@ class Archiver:
             if not _is_cross_device(exc):
                 raise
         # anderes Laufwerk: Kopie mit Verifikation
+        try:
+            need = os.path.getsize(fs(src))
+        except OSError:
+            need = 0
+        free = disk_free(parent)
+        if free is not None and free < need + 50 * 1024 * 1024:
+            raise NeedsAttention(f"Nicht genug Speicherplatz auf {volume_root(parent)} "
+                                 f"(frei {free // 1048576} MB, benoetigt {need // 1048576} MB)")
         tmp = dst + ".dzpart"
         if os.path.lexists(fs(tmp)):
             _remove_file(tmp)
@@ -219,6 +242,7 @@ class Archiver:
         ins Journal. Rueckgabe: Lauf-Nummer."""
         archive = os.path.abspath(unfs(archive))
         os.makedirs(fs(archive), exist_ok=True)
+        self._safe_names = needs_safe_names(archive)
         run_id = self.store.run_create(session_id, "archive", archive)
         rows: list[dict] = []
         taken: set[str] = set()
@@ -234,8 +258,9 @@ class Archiver:
                 continue
             for m in movers:
                 dst = self._free_target(archive, m["path"], taken)
-                rows.append({"src": m["path"], "dst": dst, "size": g["size"], "hash": g["hash"],
-                             "keeper": keepers[0], "gid": g["gid"], "session_id": session_id})
+                rows.append({"src": m["path"], "dst": dst, "size": m.get("size", g["size"]),
+                             "hash": g["hash"], "keeper": keepers[0], "gid": g["gid"],
+                             "session_id": session_id})
                 if move_sidecars:
                     for sc in formats.find_sidecars(m["path"]):
                         sk = norm_key(sc)
@@ -252,9 +277,11 @@ class Archiver:
         log.info("Archivierungs-Lauf %s geplant: %s Eintraege -> %s", run_id, len(rows), archive)
         return run_id
 
-    @staticmethod
-    def _free_target(archive: str, src: str, taken: set[str]) -> str:
+    def _free_target(self, archive: str, src: str, taken: set[str]) -> str:
         dst = archive_target(archive, src)
+        if getattr(self, "_safe_names", False):
+            # FAT/exFAT/NTFS: ungueltige Zeichen (z. B. ':' aus macOS-Namen) ersetzen
+            dst = os.path.join(archive, safe_relpath(os.path.relpath(dst, archive)))
         cand = unique_path(dst)
         if norm_key(cand) in taken:
             stem, dot, ext = dst.rpartition(".")
@@ -282,14 +309,23 @@ class Archiver:
             return True  # im Zweifel nicht verschieben
         return False
 
-    def plan_undo(self, archive_run_id: int) -> int:
-        """Plant das Zurueckverschieben eines Archivierungs-Laufs."""
+    def plan_undo(self, archive_run_id: int, entry_ids: list[int] | None = None) -> int:
+        """Plant das Zurueckverschieben eines Archivierungs-Laufs – ganz oder nur
+        ausgewaehlte Eintraege (einzelne Dateien wiederherstellen)."""
         ref = self.store.run_get(archive_run_id)
         if not ref or ref["kind"] != "archive":
             raise ValueError("Kein Archivierungs-Lauf")
         run_id = self.store.run_create(ref["session_id"], "undo", ref["archive"], archive_run_id)
         rows = []
-        for e in reversed(self.store.journal_entries(archive_run_id, (J_DONE,))):
+        wanted = set(entry_ids) if entry_ids else None
+        entries = self.store.journal_entries(archive_run_id, (J_DONE,))
+        if wanted is not None:
+            # Begleitdateien folgen ihrer Hauptdatei
+            mains = {norm_key(e["src"]) for e in entries if e["id"] in wanted and not e["sidecar"]}
+            wanted |= {e["id"] for e in entries if e["sidecar"] and norm_key(e["keeper"] or "") in mains}
+        for e in reversed(entries):
+            if wanted is not None and e["id"] not in wanted:
+                continue
             rows.append({"src": e["dst"], "dst": e["src"], "size": e["size"], "hash": e["hash"],
                          "keeper": None, "sidecar": bool(e["sidecar"]), "ref_id": e["id"],
                          "gid": e["gid"], "session_id": e["session_id"]})
@@ -298,7 +334,9 @@ class Archiver:
 
     # ---------------------------------------------------------------- Ausfuehrung
     def execute(self, run_id: int) -> dict:
-        """Fuehrt alle offenen Schritte eines Laufs aus (auch nach Absturz)."""
+        """Fuehrt alle offenen Schritte eines Laufs aus (auch nach Absturz).
+        Faellt ein Laufwerk weg, wird gewartet; ist der Speicher voll, wird der
+        Lauf angehalten (NeedsAttention) und bleibt zum Fortsetzen offen."""
         run = self.store.run_get(run_id)
         if not run:
             raise ValueError(f"Lauf {run_id} unbekannt")
@@ -308,6 +346,7 @@ class Archiver:
         self.recover_run(run_id)
         manifest = self._manifest_path(run["archive"], run_id, run["kind"])
         entries = self.store.journal_entries(run_id)
+        self._check_space(run, [e for e in entries if e["state"] == J_PLANNED])
         total = len(entries)
         total_bytes = sum(e["size"] or 0 for e in entries)
         state_by_src = {norm_key(e["src"]): e["state"] for e in entries}
@@ -317,6 +356,7 @@ class Archiver:
                 stats["done"] += 1
             elif e["state"] in (J_SKIPPED, J_FAILED):
                 stats[e["state"] if e["state"] == J_FAILED else "skipped"] += 1
+        touched_dirs: set[str] = set()
         try:
             for idx, e in enumerate(entries, 1):
                 if e["state"] != J_PLANNED:
@@ -325,13 +365,19 @@ class Archiver:
                 self._ctx = {"phase": run["kind"], "files": idx, "total": total,
                              "total_bytes": total_bytes}
                 self._emit(current=e["src"])
-                state, msg, h = self._execute_entry(run, e, state_by_src)
+                while True:
+                    state, msg, h = self._execute_entry(run, e, state_by_src)
+                    if state != "offline":
+                        break
+                    self._wait_online(msg or e["src"])
                 self.store.journal_set(e["id"], state, error=msg, h=h)
                 state_by_src[norm_key(e["src"])] = state
                 if state == J_DONE:
                     stats["done"] += 1
                     stats["bytes"] += e["size"] or 0
                     self._after_done(run, e, manifest, h)
+                    if run["kind"] == "archive":
+                        touched_dirs.add(os.path.dirname(e["src"]))
                 elif state == J_FAILED:
                     stats["failed"] += 1
                     log.warning("Fehlgeschlagen: %s – %s", e["src"], msg)
@@ -344,17 +390,86 @@ class Archiver:
                 stats["skipped"] += 1
             self.store.run_finish(run_id, "cancelled", stats)
             self._emit(force=True, phase=run["kind"], files=total, total=total)
+            self._backup_db(run["archive"])
+            raise
+        except NeedsAttention:
+            # Lauf bleibt "running": beim naechsten Start bzw. per Fortsetzen geht es weiter
+            self._backup_db(run["archive"])
             raise
         self.store.run_finish(run_id, "done", stats)
         if run["kind"] == "undo":
             _remove_empty_dirs_tree(run["archive"])
+        elif run["kind"] == "archive" and self.empty_dir_roots:
+            self._cleanup_source_dirs(touched_dirs)
+        self._backup_db(run["archive"])
         self._emit(force=True, phase=run["kind"], files=total, total=total)
         log.info("Lauf %s (%s) beendet: %s", run_id, run["kind"], stats)
         return stats
 
+    # ---------------------------------------------------------------- Hilfen 2.0
+    def _wait_online(self, path: str) -> None:
+        """Wartet (abbrechbar), bis Quelle/Archiv wieder erreichbar sind (ST2)."""
+        if is_reachable(path):
+            for _ in range(8):           # kurzer Netzaussetzer: 2 s warten, dann erneut versuchen
+                self.control.checkpoint()
+                time.sleep(0.25)
+            return
+        root = volume_root(path)
+        log.warning("Laufwerk nicht erreichbar: %s – Lauf wartet auf Wiederverbindung", root)
+        while not is_reachable(path):
+            self._emit(force=True, phase="waiting", current=root)
+            for _ in range(12):
+                self.control.checkpoint()
+                time.sleep(0.25)
+        log.info("Laufwerk wieder erreichbar: %s – Lauf geht weiter", root)
+
+    def _check_space(self, run: dict, entries: list[dict]) -> None:
+        """Vorab-Pruefung: reicht der Speicher fuer alle Kopien ueber Laufwerksgrenzen? (S2)"""
+        need: dict[str, int] = {}
+        for e in entries:
+            if not e["size"]:
+                continue
+            if same_device(e["src"], e["dst"]):
+                continue  # Umbenennen braucht keinen Platz
+            root = volume_root(e["dst"])
+            need[root] = need.get(root, 0) + e["size"]
+        for root, n in need.items():
+            free = disk_free(root)
+            if free is not None and free < n + max(SPACE_MARGIN, n // 100):
+                raise NeedsAttention(
+                    f"Nicht genug Speicherplatz auf {root}: benoetigt {n // 1048576} MB, "
+                    f"frei {free // 1048576} MB. Bitte Platz schaffen und den Lauf fortsetzen.")
+
+    def _fs_of(self, path: str) -> str:
+        root = volume_root(path)
+        if root not in self._fs_cache:
+            self._fs_cache[root] = fs_type(root)
+        return self._fs_cache[root]
+
+    def _backup_db(self, archive: str) -> None:
+        """Sicherung der Datenbank ins Archiv – damit Rueckgaengig auch nach
+        Rechnerwechsel/Datenverlust moeglich bleibt (S4)."""
+        try:
+            self.store.backup_to(os.path.join(archive, MANIFEST_DIR, DB_BACKUP_NAME))
+        except Exception:
+            log.exception("Datenbanksicherung fehlgeschlagen")
+
+    def _cleanup_source_dirs(self, dirs: set[str]) -> None:
+        """Entfernt Ordner, die durch das Archivieren leer geworden sind –
+        nur innerhalb der Quellordner, nie die Quellordner selbst."""
+        for d in sorted(dirs, key=len, reverse=True):
+            for root in self.empty_dir_roots:
+                if is_within(d, root) and norm_key(d) != norm_key(root):
+                    _remove_empty_dirs(d, root)
+                    break
+
     def _execute_entry(self, run: dict, e: dict, state_by_src: dict) -> tuple[str, str | None, str | None]:
         src, dst = e["src"], e["dst"]
         try:
+            if not is_reachable(src):
+                return "offline", src, None
+            if not is_reachable(dst):
+                return "offline", dst, None
             if not os.path.lexists(fs(src)):
                 return J_FAILED, "Quelle nicht mehr vorhanden", None
             if os.path.islink(fs(src)):
@@ -362,12 +477,15 @@ class Archiver:
             st = os.stat(fs(src))
             if formats.is_open_office_doc(src):
                 return J_SKIPPED, "Datei ist gerade geoeffnet (Sperrdatei vorhanden)", None
+            if st.st_size > FAT32_MAX and self._fs_of(dst) in FAT_TYPES and not same_device(src, dst):
+                return J_SKIPPED, "Datei groesser als 4 GB – Ziellaufwerk ist FAT32", None
+            similar = bool(e["hash"] and str(e["hash"]).startswith("t:"))
             if run["kind"] == "archive":
                 if e["sidecar"]:
                     if state_by_src.get(norm_key(e["keeper"] or "")) != J_DONE:
                         return J_SKIPPED, "zugehoerige Datei wurde nicht archiviert", None
                 else:
-                    ok, why = self._verify_duplicate(e, st)
+                    ok, why = (self._verify_similar(e, st) if similar else self._verify_duplicate(e, st))
                     if not ok:
                         return J_SKIPPED, why, None
                 if os.path.lexists(fs(dst)):
@@ -379,16 +497,30 @@ class Archiver:
                     return J_SKIPPED, "am Originalort existiert bereits eine Datei", None
                 if e["size"] is not None and st.st_size != e["size"]:
                     return J_SKIPPED, "Archivdatei wurde veraendert", None
-            h = self._move(e["id"], src, dst, e["hash"] if not e["sidecar"] else None)
+            expected = None if (e["sidecar"] or similar) else e["hash"]
+            h = self._move(e["id"], src, dst, expected)
             return J_DONE, None, h
-        except Cancelled:
+        except (Cancelled, NeedsAttention):
             raise
         except FileExistsError as exc:
             return J_FAILED, f"Ziel existiert bereits: {exc}", None
         except PermissionError as exc:
             return J_FAILED, f"Zugriff verweigert / Datei geoeffnet: {exc}", None
         except OSError as exc:
+            if is_transient_error(exc) or not is_reachable(src) or not is_reachable(dst):
+                return "offline", (src if not is_reachable(src) else dst), None
             return J_FAILED, str(exc), None
+
+    def _verify_similar(self, e: dict, st: os.stat_result) -> tuple[bool, str]:
+        """Nahezu gleiche Dokumente: Text beider Dateien muss weiterhin identisch sein."""
+        keeper = e["keeper"]
+        if st.st_size != e["size"]:
+            return False, "Groesse hat sich seit dem Scan geaendert"
+        if not keeper or not os.path.isfile(fs(keeper)):
+            return False, "behaltenes Original nicht mehr vorhanden – Dokument bleibt stehen"
+        if text_fingerprint(e["src"]) != e["hash"] or text_fingerprint(keeper) != e["hash"]:
+            return False, "Text weicht inzwischen ab"
+        return True, ""
 
     def _verify_duplicate(self, e: dict, st: os.stat_result) -> tuple[bool, str]:
         src, keeper = e["src"], e["keeper"]
@@ -530,11 +662,20 @@ class Archiver:
                         continue
                 else:
                     keeper = e["keeper"]
-                    ok = bool(keeper) and os.path.isfile(fs(keeper)) and (
-                        e["size"] is None or os.path.getsize(fs(keeper)) == e["size"])
+                    similar = bool(e["hash"] and str(e["hash"]).startswith("t:"))
+                    try:
+                        ok = bool(keeper) and os.path.isfile(fs(keeper))
+                        if ok and similar:
+                            ok = text_fingerprint(keeper) == e["hash"]
+                        elif ok:
+                            # S1: das Original muss JETZT noch Byte fuer Byte gleich sein,
+                            # sonst ist die Archivkopie womoeglich die letzte alte Fassung
+                            ok = files_equal(e["dst"], keeper, self.control)
+                    except OSError:
+                        ok = False
                     main_ok[norm_key(e["src"])] = ok
                     if not ok:
-                        log.warning("Nicht entfernt (Original fehlt/geaendert): %s", e["dst"])
+                        log.warning("Nicht entfernt (Original fehlt/inhaltlich geaendert): %s", e["dst"])
                         stats["kept"] += 1
                         continue
                 batch.append(e)
@@ -560,7 +701,64 @@ class Archiver:
                     stats["failed"] += 1
             _remove_empty_dirs_tree(run["archive"])
             self.store.run_finish(rid, "purged" if not failed else "done", run.get("stats"))
+            self._backup_db(run["archive"])
         return stats
+
+    # ---------------------------------------------------------------- Archiv importieren (S4)
+    def import_archive(self, archive: str) -> dict:
+        """Liest die CSV-Protokolle eines Archivs ein und legt dafuer Laeufe an –
+        so lassen sich Wiederherstellen und Bereinigen auch nach Rechnerwechsel
+        oder Verlust der Datenbank nutzen. Bereits bekannte Dateien werden
+        uebersprungen; uebernommen wird nur, was im Archiv noch vorhanden ist."""
+        archive = os.path.abspath(unfs(archive))
+        folder = os.path.join(archive, MANIFEST_DIR)
+        stats = {"runs": 0, "files": 0, "skipped": 0}
+        if not os.path.isdir(fs(folder)):
+            raise OSError(f"Kein DateiZwilling-Archiv: {folder} fehlt")
+        known: set[str] = set()
+        for r in self.store.runs_list("archive", 100000):
+            for e in self.store.journal_entries(r["id"], (J_DONE,)):
+                known.add(norm_key(e["dst"]))
+        for name in sorted(os.listdir(fs(folder))):
+            if not (name.startswith("Archivierung-Lauf-") and name.endswith(".csv")):
+                continue
+            rows = []
+            try:
+                with open(fs(os.path.join(folder, name)), encoding="utf-8-sig", newline="") as fh:
+                    for rec in csv.reader(fh, delimiter=";"):
+                        if len(rec) < 7 or rec[1] != "archiviert":
+                            continue
+                        orig, arch = _uncsv(rec[2]), _uncsv(rec[3])
+                        if norm_key(arch) in known or not os.path.isfile(fs(arch)):
+                            stats["skipped"] += 1
+                            continue
+                        try:
+                            size = int(rec[5]) if rec[5] else None
+                        except ValueError:
+                            size = None
+                        rows.append({"src": orig, "dst": arch, "size": size, "hash": rec[6] or None,
+                                     "keeper": _uncsv(rec[4]) or None,
+                                     "sidecar": len(rec) > 7 and rec[7] == "ja"})
+                        known.add(norm_key(arch))
+            except (OSError, csv.Error) as exc:
+                log.warning("Protokoll %s nicht lesbar: %s", name, exc)
+                continue
+            if not rows:
+                continue
+            rid = self.store.run_create(None, "archive", archive)
+            self.store.journal_plan(rid, rows)
+            for e in self.store.journal_entries(rid):
+                self.store.journal_set(e["id"], J_DONE)
+            self.store.run_finish(rid, "done", {"done": len(rows), "imported": name})
+            stats["runs"] += 1
+            stats["files"] += len(rows)
+        log.info("Archiv importiert (%s): %s", archive, stats)
+        return stats
+
+
+def _uncsv(v: str) -> str:
+    """Kehrt csv_safe() um (fuehrendes Hochkomma vor =,+,-,@)."""
+    return v[1:] if v[:2] in ("'=", "'+", "'-", "'@") else v
 
 
 def _remove_empty_dirs_tree(root: str) -> None:

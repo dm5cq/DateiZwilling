@@ -43,7 +43,7 @@ def main() -> int:
     crash_fh = _setup_logging(folder)
     log = logging.getLogger("dateizwilling")
     cli = len(sys.argv) > 1 and (sys.argv[1] == "--cli" or sys.argv[1] in
-                                 ("scan", "resume", "runs", "undo", "purge", "-h", "--help"))
+                                 ("scan", "resume", "runs", "undo", "purge", "import", "restore", "-h", "--help"))
     log.info("DateiZwilling %s startet (%s), Daten: %s", APP_VERSION, "CLI" if cli else "GUI", folder)
 
     lock = InstanceLock(folder)

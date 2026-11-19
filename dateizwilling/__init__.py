@@ -6,7 +6,7 @@ Umsetzung: Claude (Anthropic)
 """
 
 APP_NAME = "DateiZwilling"
-APP_VERSION = "1.0.0"
+APP_VERSION = "2.0.0"
 APP_BUILD_DATE = "18.11.2026"
 APP_AUTHOR = "Stefan J. Kaiser DM5CQ / OE8KKS"
 APP_COPYRIGHT = (

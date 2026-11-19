@@ -1,5 +1,8 @@
-# Laufzeit: nur Python-Standardbibliothek (tkinter, sqlite3, hashlib).
-# Optional fuer Bildvorschau:
-pillow>=10.0
+# DateiZwilling 2.0 – Abhaengigkeiten
+# Kernfunktionen: nur Python-Standardbibliothek (tkinter, sqlite3, hashlib, zipfile).
+# Optionale Zusatzfunktionen (fehlen sie, laeuft alles andere unveraendert):
+pillow>=10.0,<13          # Bildvorschau, RAW-/Office-/3MF-/G-Code-/STL-Vorschau
+pypdfium2>=4.20,<6        # PDF-Vorschau und Text fuer "nahezu gleiche Dokumente" (Apache-2.0/BSD)
+tkinterdnd2>=0.3,<1       # Drag & Drop von Ordnern (MIT)
 # Build:
-pyinstaller>=6.3
+pyinstaller>=6.3,<7

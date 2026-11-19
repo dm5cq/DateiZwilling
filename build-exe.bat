@@ -1,9 +1,9 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title DateiZwilling - Windows-Build
+title DateiZwilling 2.0 - Windows-Build
 echo.
-echo  ===  DateiZwilling 1.0.0  -  portable Windows-EXE bauen  ===
+echo  ===  DateiZwilling 2.0.0  -  portable Windows-EXE bauen  ===
 echo.
 
 rem --- Python suchen (py-Launcher bevorzugt) ---
@@ -26,6 +26,8 @@ if not exist ".venv\Scripts\python.exe" (
 call ".venv\Scripts\activate.bat" || goto :fehler
 python -m pip install --upgrade pip >nul
 python -m pip install -r requirements.txt || goto :fehler
+rem S9: exakte Paketstaende fuer Nachvollziehbarkeit festhalten
+python -m pip freeze > build-lock.txt
 
 rem --- automatische Tests ---
 echo.
@@ -41,10 +43,19 @@ if errorlevel 1 (
 rem --- EXE bauen ---
 echo.
 echo Baue DateiZwilling.exe ...
-pyinstaller --noconfirm --clean --onefile --windowed --name DateiZwilling --icon "assets\icon.ico" --add-data "assets;assets" --version-file version_info.txt DateiZwilling.py || goto :fehler
+pyinstaller --noconfirm --clean --onefile --windowed --name DateiZwilling --icon "assets\icon.ico" --add-data "assets;assets" --collect-all tkinterdnd2 --collect-all pypdfium2 --version-file version_info.txt DateiZwilling.py || goto :fehler
+
+rem --- S9: Pruefsumme und optionale Signatur ---
+certutil -hashfile dist\DateiZwilling.exe SHA256 > dist\DateiZwilling.exe.sha256.txt
+if defined DZ_SIGN_CERT (
+  echo Signiere mit %DZ_SIGN_CERT% ...
+  signtool sign /f "%DZ_SIGN_CERT%" /p "%DZ_SIGN_PASS%" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 dist\DateiZwilling.exe
+  certutil -hashfile dist\DateiZwilling.exe SHA256 > dist\DateiZwilling.exe.sha256.txt
+)
 
 echo.
 echo  FERTIG:  dist\DateiZwilling.exe
+echo  Pruefsumme: dist\DateiZwilling.exe.sha256.txt
 echo  Die EXE ist portabel. Einstellungen, Cache und Protokolle landen im Ordner
 echo  "DateiZwilling-Daten" neben der EXE.
 echo.

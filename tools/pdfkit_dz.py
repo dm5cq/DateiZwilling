@@ -49,7 +49,7 @@ def build(path, title, subtitle, blocks, footer, icon, lang="de"):
     doc = SimpleDocTemplate(path, pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm,
                             topMargin=40 * mm, bottomMargin=18 * mm, title=title,
                             author="Stefan J. Kaiser DM5CQ / OE8KKS", subject=subtitle,
-                            creator="DateiZwilling 1.0.0")
+                            creator="DateiZwilling 2.0.0")
     W = A4[0] - 36 * mm
 
     def deco(c, d):

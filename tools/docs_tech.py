@@ -8,14 +8,16 @@ ICON = os.path.join(ROOT, "assets", "icon.png")
 OUT = os.path.join(ROOT, "docs")
 PDF = os.path.join(ROOT, "Dokumentation")
 os.makedirs(PDF, exist_ok=True)
-FOOT_DE = "© 2026 Stefan J. Kaiser DM5CQ / OE8KKS · Idee und Konzept · Umsetzung: Claude (Anthropic), 18.11.2026"
-FOOT_EN = "© 2026 Stefan J. Kaiser DM5CQ / OE8KKS · Idea and concept · Implementation: Claude (Anthropic), 18.11.2026"
+FOOT_DE = "© 2026 Stefan J. Kaiser DM5CQ / OE8KKS · Idee & Konzept · Umsetzung: Claude (Anthropic) · GNU GPL v3"
+FOOT_EN = "© 2026 Stefan J. Kaiser DM5CQ / OE8KKS · Idea & concept · Implementation: Claude (Anthropic) · GNU GPL v3"
 
 prompt = open(os.path.join(OUT, "PROMPT.md"), encoding="utf-8").read()
 MSG1 = prompt.split("## Nachricht 1")[1].split("## Nachricht 2")[0].strip().lstrip("> ").strip()
 MSG2 = prompt.split("## Nachricht 2")[1].split("---")[0].strip().lstrip("> ").strip()
 N_TESTS = sys.argv[2]
-MSG3 = prompt.split("## Nachtrag 1.0.1")[1].strip().lstrip("> ").strip()
+MSG3 = prompt.split("## Nachtrag 1.0.1")[1].split("## Nachtrag 2.0")[0].strip().lstrip("> ").strip()
+MSG4 = prompt.split("## Nachtrag 2.0 – Rückmeldung zum Info-Dialog")[1].split("## Freigabe 2.0")[0].strip().lstrip("> ").strip()
+MSG5 = prompt.split("## Freigabe 2.0")[1].split("###")[0].strip().lstrip("> ").strip()
 
 STATE = ("planned ──rename (gleiches Laufwerk)──────────────────────► done\n"
          "   │\n"
@@ -38,7 +40,11 @@ MODULES_DE = [
     ["dateizwilling/common.py", "Pause/Abbruch (Control), BLAKE2b, Byte-Vergleich, Formatierung, CSV-Schutz"],
     ["dateizwilling/gui.py", "Tkinter-Oberfläche im BildZwilling-Stil, Hintergrund-Thread + Nachrichten-Warteschlange"],
     ["dateizwilling/cli.py", "Kommandozeile: scan, resume, runs, undo, purge"],
-    ["dateizwilling/report.py", "HTML- und CSV-Bericht"],
+    ["dateizwilling/report.py", "HTML- und CSV-Bericht, Statistik je Kategorie, Anonymisierung"],
+    ["dateizwilling/preview.py", "Vorschauen: Bilder, RAW-JPEG, PDF, Office/3MF-Miniaturen, G-Code, STL/OBJ-3D-Ansicht, Video, Explorer/Quick Look"],
+    ["dateizwilling/content.py", "Text-Fingerabdruck für nahezu gleiche Dokumente (OOXML, OpenDocument, PDF, Text)"],
+    ["dateizwilling/scheduler.py", "Zeitplan über Windows-Aufgabenplanung / macOS launchd"],
+    ["dateizwilling/gui_extra.py", "Dialoge: Info, Lizenz, Haftungsausschluss, Diagnose, Statistik, Archiv-Browser, Zeitplan"],
     ["dateizwilling/i18n.py / config.py", "Texte DE/EN, Einstellungen (atomar gespeichert)"],
 ]
 MODULES_EN = [
@@ -51,39 +57,51 @@ MODULES_EN = [
     ["dateizwilling/common.py", "Pause/cancel (Control), BLAKE2b, byte comparison, formatting, CSV protection"],
     ["dateizwilling/gui.py", "Tkinter interface in BildZwilling style, background thread + message queue"],
     ["dateizwilling/cli.py", "Command line: scan, resume, runs, undo, purge"],
-    ["dateizwilling/report.py", "HTML and CSV report"],
+    ["dateizwilling/report.py", "HTML and CSV report, statistics per category, anonymization"],
+    ["dateizwilling/preview.py", "Previews: images, RAW JPEG, PDF, Office/3MF thumbnails, G-code, STL/OBJ 3D view, video, Explorer/Quick Look"],
+    ["dateizwilling/content.py", "Text fingerprint for near-identical documents (OOXML, OpenDocument, PDF, text)"],
+    ["dateizwilling/scheduler.py", "Schedule via Windows Task Scheduler / macOS launchd"],
+    ["dateizwilling/gui_extra.py", "Dialogs: about, license, disclaimer, diagnostics, statistics, archive browser, schedule"],
     ["dateizwilling/i18n.py / config.py", "Texts DE/EN, settings (saved atomically)"],
 ]
 
 REVIEW_DE = [
-    ["R1", "Zeitstempel aus Verzeichniseinträgen weichen auf Netzlaufwerken von os.stat ab", "Werte aus os.stat für alle Kandidaten"],
-    ["R2", "Archivlaufwerk beim Neustart nicht verbunden", "Wiederherstellung/Fortsetzen warten, bis das Archiv erreichbar ist"],
-    ["R3", "Geöffnete Office-Dokumente könnten verschoben werden", "Sperrdateien ~$… / .~lock.…# → übersprungen"],
-    ["R4", "Schnell-/Voll-Prüfsumme im Cache vermischbar", "Getrennte Behandlung kleiner/großer Dateien"],
-    ["R5", "CSV-/Formel-Injektion in Excel", "csv_safe() für Bericht und Manifest"],
-    ["R6", "SQLite-Verbindungsleck bei defekter DB", "Verbindung schließen, DB sichern und neu anlegen"],
-    ["R7", "Emoji außerhalb BMP in Tk 8.6", "durch BMP-Symbole ersetzt"],
-    ["R8", "Speicherbedarf bei Millionen Dateien", "__slots__ für Dateieinträge"],
-    ["R9", "Archiv-Fortschritt > 100 %", "Fortschritt nach Dateien"],
-    ["R10", "1.0.1: Native Windows-Meldungsfenster weiß", "Eigene dunkle Dialoge; Test verbietet native Meldungsfenster"],
-    ["R11", "1.0.1: Titelleiste des Info-Dialogs weiß", "DWM über Rahmenfenster, erneut nach Anzeigen + Neuzeichnen"],
-    ["R12", "1.0.1: Scan-Knopf erst im Vollbild sichtbar", "Fenster an Bildschirm angepasst, Knöpfe fest unten, Seitenleiste scrollbar"],
-    ["R13", "1.0.1: Weiße Checkboxen", "Indikatorfarben grau / orange mit weißem Haken"],
+    ["S1", "Bereinigen: Archivkopie wird vorher Byte für Byte mit dem Original verglichen", "umgesetzt, Test"],
+    ["S2", "Speicherplatz vorab und je Datei; bei Mangel Lauf angehalten (bleibt offen)", "umgesetzt, Test"],
+    ["S3", "FAT32-Grenze 4 GB; ungültige Namen auf FAT/exFAT/NTFS ersetzt", "umgesetzt, Test"],
+    ["S4", "Datenbanksicherung im Archiv; Archiv-Import aus CSV-Protokollen", "umgesetzt, Test"],
+    ["S5", "Einzelne Dateien wiederherstellen (Begleitdateien folgen)", "umgesetzt, Test"],
+    ["S6/S7", "Warnung Cloud-Sync-Archiv; Laufwerk/System-/Benutzerordner als Quelle", "umgesetzt, Test"],
+    ["S8", "Erstellungsdatum und Attribute bei Kopien (Windows)", "umgesetzt"],
+    ["S9", "Lock-Datei, SHA-256, optionale Signatur", "Build-Skripte"],
+    ["S10", "Anonymisierte Berichte und Diagnose", "umgesetzt, Test"],
+    ["ST1–ST7", "Kein Standby, Warten auf Laufwerke, Vorschau-Thread, Dateiliste auf Platte + Seiten, SSD/HDD, DB-Pflege, Testplan + Diagnose", "umgesetzt, Tests"],
+    ["R14", "Ordner-Archivierung erfasste auch Kopien außerhalb der Ordner", "behoben, Test"],
+    ["R15", "Ein Thread je Vorschau", "ein Worker, neueste Anfrage gewinnt"],
+    ["R16", "% in Pfaden der Zeitplan-Datei", "%% maskiert"],
+    ["R17", "Diagnose mit vollständigen Pfaden", "anonymisiert"],
+    ["R18", "Alte Ergebnisliste unverträglich", "Schema-Migration"],
+    ["R19", "Titel überdeckte Kopfleisten-Knöpfe", "Packreihenfolge"],
+    ["R20", "Dateihandle-Leck /sys/block", "with open"],
 ]
 REVIEW_EN = [
-    ["R1", "Directory-entry timestamps differ from os.stat on network drives", "os.stat values for all candidates"],
-    ["R2", "Archive drive not connected at restart", "Recovery/resume wait until the archive is reachable"],
-    ["R3", "Open Office documents could be moved", "Lock files ~$… / .~lock.…# → skipped"],
-    ["R4", "Quick/full checksum could be mixed in cache", "Separate handling of small/large files"],
-    ["R5", "CSV/formula injection in Excel", "csv_safe() for report and manifest"],
-    ["R6", "SQLite connection leak on corrupt DB", "Close connection, back up DB and recreate"],
-    ["R7", "Non-BMP emoji in Tk 8.6", "Replaced with BMP symbols"],
-    ["R8", "Memory use with millions of files", "__slots__ for file records"],
-    ["R9", "Archive progress > 100 %", "Progress by files"],
-    ["R10", "1.0.1: native Windows message boxes white", "Own dark dialogs; test forbids native message boxes"],
-    ["R11", "1.0.1: About dialog title bar white", "DWM via frame window, re-applied after mapping + redraw"],
-    ["R12", "1.0.1: scan button only visible when maximized", "Window fitted to screen, buttons anchored at bottom, scrollable sidebar"],
-    ["R13", "1.0.1: white check boxes", "Indicator colours grey / orange with white tick"],
+    ["S1", "Clean-up: archived copy compared byte by byte with the original first", "implemented, test"],
+    ["S2", "Free space checked up front and per file; run paused if short (stays open)", "implemented, test"],
+    ["S3", "FAT32 4 GB limit; invalid names on FAT/exFAT/NTFS replaced", "implemented, test"],
+    ["S4", "Database backup in the archive; archive import from CSV manifests", "implemented, test"],
+    ["S5", "Restore single files (sidecars follow)", "implemented, test"],
+    ["S6/S7", "Warning for cloud-sync archive; drive/system/user folder as source", "implemented, test"],
+    ["S8", "Creation date and attributes on copies (Windows)", "implemented"],
+    ["S9", "Lock file, SHA-256, optional signing", "build scripts"],
+    ["S10", "Anonymized reports and diagnostics", "implemented, test"],
+    ["ST1–ST7", "No standby, wait for drives, preview thread, file list on disk + pages, SSD/HDD, DB maintenance, test plan + diagnostics", "implemented, tests"],
+    ["R14", "Folder archiving also caught copies outside the folders", "fixed, test"],
+    ["R15", "One thread per preview", "one worker, latest request wins"],
+    ["R16", "% in paths of the schedule file", "escaped as %%"],
+    ["R17", "Diagnostics with full paths", "anonymized"],
+    ["R18", "Old result list incompatible", "schema migration"],
+    ["R19", "Title covered header buttons", "packing order"],
+    ["R20", "File handle leak /sys/block", "with open"],
 ]
 
 de = [
@@ -145,30 +163,45 @@ de = [
         ["Geschützte Kataloge (Option)", ".lrcat, .cocatalogdb, .cosessiondb, .pst, .ost, SQLite-WAL/SHM"],
         ["Weitere", "Symlinks/Junctions, Hardlinks, Cloud-Platzhalter, geöffnete Office-Dokumente, geschützte Ordner"],
     ], [0.3, 0.7]),
-    ("h1", "8  Kommandozeile"),
+    ("h1", "8  Neu in Version 2.0"),
+    ("table", ["Funktion", "Technik"], [
+        ["Doppelte Ordner (F2)", "Je Ordner (rekursiv) wird eine reihenfolgeunabhängige Signatur aus relativem Pfad + Prüfsumme aller Dateien gebildet. Ein Ordner gilt als doppelt, wenn alle geprüften Dateien in Duplikatgruppen liegen und Signatur + Anzahl übereinstimmen. Nur oberste Ordner werden gemeldet; beim Archivieren werden nur die Dateien dieser Ordner verschoben."],
+        ["Nahezu gleiche Dokumente (F8)", "Text aus OOXML (word/ppt/xl), OpenDocument, PDF (pypdfium2) und Textdateien, Leerraum normalisiert, BLAKE2b-192 ('t:'-Prüfsumme, im Cache). Eigene Ansicht und Rückfrage; Text-Vergleich unmittelbar vor dem Verschieben und Bereinigen."],
+        ["Vorschau (F1, ST3)", "Ein Hintergrund-Thread; Quellen nacheinander: Pillow, eingebettetes JPEG (RAW), PDF-Seite, ZIP-Miniatur (Office/iWork/3MF), G-Code-Base64-Bilder, eigene 3D-Darstellung für STL/OBJ (isometrisch, flach schattiert), ffmpeg-Standbild, Windows-Explorer-Miniatur bzw. macOS Quick Look."],
+        ["Ordnerregeln (F3)", "Reihenfolge der Original-Wahl: geschützt > bevorzugt > nicht 'nie Original' > Priorität der Quellordner > Regel > Pfad."],
+        ["Archiv-Browser (F4, S5)", "Alle Läufe und Dateien, Suche, Teil-Wiederherstellung (plan_undo mit Eintrags-IDs), Fortsetzen offener Läufe, Archiv-Import."],
+        ["Zeitplan (F7)", "Windows: .cmd-Datei + schtasks (umgeht die 261-Zeichen-Grenze); macOS: LaunchAgent-plist. Erzeugt nur HTML-Berichte."],
+        ["Skalierung (ST4)", "Dateiliste in temporärer SQLite-Datei (scan-temp-N.db), Kandidaten per GROUP BY size; Anzeige in Seiten zu 1000 Gruppen."],
+        ["Laufwerk weg (ST2)", "Transiente Fehler (WinError 53/64/121 …, EIO, ETIMEDOUT, ESTALE …) oder nicht erreichbare Laufwerkswurzel → Phase 'waiting', Prüfung alle 3 s, abbrechbar."],
+        ["3D-Druck & CAD", "Neue Kategorie mit Modell-, Slicer-, Harzdruck- und CAD-Formaten; STL/OBJ-Vorschau ohne Zusatzbibliothek."],
+    ], [0.27, 0.73]),
+    ("h1", "9  Kommandozeile"),
     ("code", "DateiZwilling.exe --cli scan -s D:\\Daten -s E:\\Sicherung -a F:\\DZ-Archiv\n"
              "        [-p geschützt] [-x *.tmp] [--category office --category pdf]\n"
              "        [--keep oldest|newest|shortest|longest] [--workers 2] [--no-verify]\n"
              "        [--report bericht.html] [--csv bericht.csv] [--archive-now --yes]\n"
-             "DateiZwilling.exe --cli resume | runs | undo [--run N] | purge --run N [--permanent] --yes"),
-    ("h1", "9  Build und Verteilung"),
+             "        [--prefer ordner] [--avoid ordner] [--similar] [--report-dir ordner] [--anonymize]\n"
+             "DateiZwilling.exe --cli resume | runs | undo [--run N] | purge --run N [--permanent] --yes\n"
+             "DateiZwilling.exe --cli import F:\\DZ-Archiv | restore --run N --file <Originalpfad>"),
+    ("h1", "10  Build und Verteilung"),
     ("ul", [
-        "<b>Windows:</b> <i>build-exe.bat</i> – prüft Python ≥ 3.10 und tkinter, legt .venv an, installiert Pillow + PyInstaller, führt alle Tests aus und erzeugt <i>dist\\DateiZwilling.exe</i> (onefile, windowed, Icon, Versionsinfo).",
+        "<b>Windows:</b> <i>build-exe.bat</i> – prüft Python ≥ 3.10 und tkinter, legt .venv an, installiert Pillow, pypdfium2, tkinterdnd2 und PyInstaller, schreibt <i>build-lock.txt</i>, führt alle Tests aus und erzeugt <i>dist\\DateiZwilling.exe</i> plus SHA-256-Datei; mit <i>DZ_SIGN_CERT</i>/<i>DZ_SIGN_PASS</i> wird signiert.",
         "<b>macOS:</b> <i>build-macos.sh</i> – .app mit Bundle-ID, Ad-hoc-Signatur und DMG.",
         "Code-Signatur (optional) verhindert SmartScreen-/Gatekeeper-Hinweise.",
     ]),
-    ("h1", "10  Tests"),
-    ("p", f"{N_TESTS} automatische Tests (<i>python -m unittest discover -s tests</i>) decken Scan, Archivierung, Pfadabbildung, Laufwerkswechsel, Rückgängig, Bereinigen, Schutzregeln, Datenbankdefekt, sechs Absturz-Szenarien und einen kompletten Oberflächen-Ablauf (mit Tk-Attrappe) ab. Zusätzlich: Praxistest mit <i>kill -9</i> während einer Kopie auf ein anderes Dateisystem – nach <i>resume</i> waren alle 12 Dateien (480 MB) inhaltsgleich im Archiv, ohne Reste."),
-    ("h1", "11  Code-Review (Sicherheit, Stabilität, Ausfallsicherheit)"),
-    ("table", ["#", "Fund", "Behebung"], REVIEW_DE, [0.06, 0.52, 0.42]),
+    ("h1", "11  Tests"),
+    ("p", f"{N_TESTS} automatische Tests (<i>python -m unittest discover -s tests</i>) decken Scan, Archivierung, Pfadabbildung, Laufwerkswechsel, Rückgängig, Bereinigen, Schutzregeln, Datenbankdefekt, sechs Absturz-Szenarien, alle Sicherheits- und Stabilitätsfunktionen von 2.0 (S1–S5, S10, ST2, ST4, ST6), doppelte Ordner, Ordnerregeln, nahezu gleiche Dokumente, 3D-Vorschauen sowie komplette Oberflächen-Abläufe (mit Tk-Attrappe) ab. Für den ersten Windows-Start liegt <i>docs/TESTPLAN.md</i> bei. Zusätzlich: Praxistest mit <i>kill -9</i> während einer Kopie auf ein anderes Dateisystem – nach <i>resume</i> waren alle 12 Dateien (480 MB) inhaltsgleich im Archiv, ohne Reste."),
+    ("h1", "12  Code-Review 2.0 (Sicherheit, Stabilität, Ausfallsicherheit)"),
+    ("table", ["#", "Vorschlag / Fund", "Status"], REVIEW_DE, [0.1, 0.62, 0.28]),
     ("h2", "Bekannte Grenzen"),
     ("ul", [
         "Oberfläche nur mit Tk-Attrappe getestet (keine Anzeige in der Build-Umgebung) – Optik bitte unter Windows/macOS prüfen.",
-        "Das Repository dm5cq/BildZwilling enthielt keinen Code; der Stil wurde nach den bekannten Vorgaben (Dunkelgrau/Orange, graue Titelleiste, Info-Dialog grau/weiß mit Icon) nachgebaut.",
+        "Explorer-Miniaturen (Rückfall-Vorschau) und Drag & Drop sind in der Build-Umgebung nicht prüfbar; bei Fehlern erscheint das Dateisymbol bzw. Ziehen ist inaktiv.",
+        "Haftungsausschluss mit „soweit gesetzlich zulässig“ – keine Rechtsberatung.",
         "Kopie über Laufwerksgrenzen: Erstellungsdatum (Windows), NTFS-Alternate-Data-Streams und macOS-Finder-Tags werden nicht übernommen – Archiv möglichst auf dasselbe Laufwerk legen.",
         "Netzlaufwerke haben keinen Papierkorb – die App erkennt das und erlaubt dort nur bewusstes endgültiges Löschen.",
     ]),
-    ("h1", "12  Original-Prompt"),
+    ("h1", "13  Original-Prompt"),
     ("p", "Idee und Konzept: Stefan J. Kaiser DM5CQ / OE8KKS. Der Prompt wurde in zwei Nachrichten gesendet und ist unverändert wiedergegeben (auch als <i>PROMPT.md</i> / <i>PROMPT.txt</i>)."),
     ("h2", "Nachricht 1"),
     ("quote", MSG1),
@@ -176,6 +209,10 @@ de = [
     ("quote", MSG2),
     ("h2", "Nachtrag zu Version 1.0.1"),
     ("quote", MSG3),
+    ("h2", "Nachtrag zu Version 2.0 – Info-Dialog und Vorschläge"),
+    ("quote", MSG4),
+    ("h2", "Freigabe 2.0"),
+    ("quote", MSG5),
     ("h2", "Abgeleitete Anforderungen"),
     ("table", ["Nr.", "Anforderung", "Umsetzung"], [
         ["A1", "Stil wie BildZwilling", "Dunkelgrau/Orange/Weiß, graue Titelleiste, Info-Dialog, DE/EN, Barrierefreiheit"],
@@ -187,6 +224,7 @@ de = [
         ["A8", "Code-Review", "Kapitel 11, docs/CODE-REVIEW.md"],
         ["A9", "Nach Crash weitermachen", "Journal + Cache + Wiederherstellung"],
         ["A10–A13", "QuickDoku DE/EN, Technik mit Prompt, Prompt separat, ZIP", "dieses Paket"],
+        ["2.0", "Info-Dialog, GPL, Haftungsausschluss, alle Vorschläge S1–S10, ST1–ST7, F1–F8, 3D-Druck-Dateien", "Kapitel 8 und 12"],
     ], [0.1, 0.38, 0.52]),
 ]
 
@@ -249,30 +287,45 @@ en = [
         ["Protected catalogs (option)", ".lrcat, .cocatalogdb, .cosessiondb, .pst, .ost, SQLite WAL/SHM"],
         ["Further", "Symlinks/junctions, hardlinks, cloud placeholders, open Office documents, protected folders"],
     ], [0.3, 0.7]),
-    ("h1", "8  Command line"),
+    ("h1", "8  New in version 2.0"),
+    ("table", ["Feature", "Technique"], [
+        ["Duplicate folders (F2)", "For every folder (recursive) an order-independent signature of relative path + checksum of all files is built. A folder is a duplicate if all checked files are in duplicate groups and signature + count match. Only top-level folders are reported; archiving moves only the files of those folders."],
+        ["Near-identical documents (F8)", "Text from OOXML (word/ppt/xl), OpenDocument, PDF (pypdfium2) and text files, whitespace normalized, BLAKE2b-192 ('t:' checksum, cached). Own view and confirmation; text compared again right before moving and clean-up."],
+        ["Preview (F1, ST3)", "One background thread; sources in order: Pillow, embedded JPEG (RAW), PDF page, ZIP thumbnail (Office/iWork/3MF), G-code base64 images, own 3D rendering for STL/OBJ (isometric, flat shaded), ffmpeg still, Windows Explorer thumbnail or macOS Quick Look."],
+        ["Folder rules (F3)", "Order of original choice: protected > preferred > not 'never original' > source priority > rule > path."],
+        ["Archive browser (F4, S5)", "All runs and files, search, partial restore (plan_undo with entry IDs), continue open runs, archive import."],
+        ["Schedule (F7)", "Windows: .cmd file + schtasks (avoids the 261-character limit); macOS: LaunchAgent plist. Produces HTML reports only."],
+        ["Scaling (ST4)", "File list in a temporary SQLite file (scan-temp-N.db), candidates via GROUP BY size; display in pages of 1000 groups."],
+        ["Drive gone (ST2)", "Transient errors (WinError 53/64/121 …, EIO, ETIMEDOUT, ESTALE …) or unreachable drive root → phase 'waiting', check every 3 s, cancellable."],
+        ["3D printing & CAD", "New category with model, slicer, resin and CAD formats; STL/OBJ preview without extra library."],
+    ], [0.27, 0.73]),
+    ("h1", "9  Command line"),
     ("code", "DateiZwilling.exe --cli scan -s D:\\Data -s E:\\Backup -a F:\\DZ-Archive\n"
              "        [-p protected] [-x *.tmp] [--category office --category pdf]\n"
              "        [--keep oldest|newest|shortest|longest] [--workers 2] [--no-verify]\n"
              "        [--report report.html] [--csv report.csv] [--archive-now --yes]\n"
-             "DateiZwilling.exe --cli resume | runs | undo [--run N] | purge --run N [--permanent] --yes"),
-    ("h1", "9  Build and distribution"),
+             "        [--prefer folder] [--avoid folder] [--similar] [--report-dir folder] [--anonymize]\n"
+             "DateiZwilling.exe --cli resume | runs | undo [--run N] | purge --run N [--permanent] --yes\n"
+             "DateiZwilling.exe --cli import F:\\DZ-Archive | restore --run N --file <original path>"),
+    ("h1", "10  Build and distribution"),
     ("ul", [
-        "<b>Windows:</b> <i>build-exe.bat</i> – checks Python ≥ 3.10 and tkinter, creates .venv, installs Pillow + PyInstaller, runs all tests and produces <i>dist\\DateiZwilling.exe</i> (onefile, windowed, icon, version info).",
+        "<b>Windows:</b> <i>build-exe.bat</i> – checks Python ≥ 3.10 and tkinter, creates .venv, installs Pillow, pypdfium2, tkinterdnd2 and PyInstaller, writes <i>build-lock.txt</i>, runs all tests and produces <i>dist\\DateiZwilling.exe</i> plus a SHA-256 file; signs with <i>DZ_SIGN_CERT</i>/<i>DZ_SIGN_PASS</i> if set.",
         "<b>macOS:</b> <i>build-macos.sh</i> – .app with bundle ID, ad-hoc signature and DMG.",
         "Code signing (optional) avoids SmartScreen/Gatekeeper warnings.",
     ]),
-    ("h1", "10  Tests"),
-    ("p", f"{N_TESTS} automated tests (<i>python -m unittest discover -s tests</i>) cover scanning, archiving, path mirroring, cross-drive moves, undo, clean-up, protection rules, database corruption, six crash scenarios and a complete interface flow (with a Tk stub). In addition: real test with <i>kill -9</i> during a copy to another file system – after <i>resume</i> all 12 files (480 MB) were in the archive with identical content and no leftovers."),
-    ("h1", "11  Code review (security, stability, fault tolerance)"),
-    ("table", ["#", "Finding", "Fix"], REVIEW_EN, [0.06, 0.52, 0.42]),
+    ("h1", "11  Tests"),
+    ("p", f"{N_TESTS} automated tests (<i>python -m unittest discover -s tests</i>) cover scanning, archiving, path mirroring, cross-drive moves, undo, clean-up, protection rules, database corruption, six crash scenarios, all 2.0 safety and stability features (S1–S5, S10, ST2, ST4, ST6), duplicate folders, folder rules, near-identical documents, 3D previews and complete interface flows (with a Tk stub). <i>docs/TESTPLAN.md</i> is included for the first Windows start. In addition: real test with <i>kill -9</i> during a copy to another file system – after <i>resume</i> all 12 files (480 MB) were in the archive with identical content and no leftovers."),
+    ("h1", "12  Code review 2.0 (security, stability, fault tolerance)"),
+    ("table", ["#", "Proposal / finding", "Status"], REVIEW_EN, [0.1, 0.62, 0.28]),
     ("h2", "Known limitations"),
     ("ul", [
         "Interface tested only with a Tk stub (no display in the build environment) – please check the look on Windows/macOS.",
-        "The repository dm5cq/BildZwilling contained no code; the style was rebuilt from the known requirements (dark grey/orange, grey title bar, grey/white About dialog with icon).",
+        "Explorer thumbnails (fallback preview) and drag & drop cannot be tested in the build environment; on failure the file icon is shown or dragging is inactive.",
+        "Disclaimer uses “to the extent permitted by law” – no legal advice.",
         "Cross-drive copy: creation date (Windows), NTFS alternate data streams and macOS Finder tags are not preserved – put the archive on the same drive where possible.",
         "Network drives have no recycle bin – the app detects this and only allows deliberate permanent deletion there.",
     ]),
-    ("h1", "12  Original prompt"),
+    ("h1", "13  Original prompt"),
     ("p", "Idea and concept: Stefan J. Kaiser DM5CQ / OE8KKS. The prompt was sent in German in two messages and is reproduced unchanged (also available as <i>PROMPT.md</i> / <i>PROMPT.txt</i>)."),
     ("h2", "Message 1"),
     ("quote", MSG1),
@@ -280,6 +333,10 @@ en = [
     ("quote", MSG2),
     ("h2", "Addendum for version 1.0.1"),
     ("quote", MSG3),
+    ("h2", "Addendum for version 2.0 – About dialog and proposals"),
+    ("quote", MSG4),
+    ("h2", "Release of 2.0"),
+    ("quote", MSG5),
     ("h2", "Derived requirements"),
     ("table", ["No.", "Requirement", "Implementation"], [
         ["A1", "Same style as BildZwilling", "Dark grey/orange/white, grey title bar, About dialog, DE/EN, accessibility"],
@@ -291,11 +348,12 @@ en = [
         ["A8", "Code review", "Chapter 11, docs/CODE-REVIEW.md"],
         ["A9", "Continue after crash", "Journal + cache + recovery"],
         ["A10–A13", "Quick guide DE/EN, technical doc with prompt, prompt separately, ZIP", "this package"],
+        ["2.0", "About dialog, GPL, disclaimer, all proposals S1–S10, ST1–ST7, F1–F8, 3D printing files", "chapters 8 and 12"],
     ], [0.1, 0.38, 0.52]),
 ]
 
 build(os.path.join(PDF, "Technische_Beschreibung_DE.pdf"), "DateiZwilling – Technische Beschreibung",
-      "Version 1.0.1 · Architektur, Verfahren, Ausfallsicherheit, Code-Review, Prompt", de, FOOT_DE, ICON, "de")
+      "Version 2.0.0 · Architektur, Verfahren, Ausfallsicherheit, Code-Review, Prompt", de, FOOT_DE, ICON, "de")
 build(os.path.join(PDF, "Technical_Description_EN.pdf"), "DateiZwilling – Technical Description",
-      "Version 1.0.1 · Architecture, methods, fault tolerance, code review, prompt", en, FOOT_EN, ICON, "en")
+      "Version 2.0.0 · Architecture, methods, fault tolerance, code review, prompt", en, FOOT_EN, ICON, "en")
 print("tech ok")

@@ -211,7 +211,7 @@ class GuiSmoke(unittest.TestCase):
         os.makedirs(a)
         os.makedirs(os.path.join(b, "sub"))
         payload = os.urandom(150_000)
-        for p in (os.path.join(a, "x.pdf"), os.path.join(b, "sub", "y.pdf"), os.path.join(b, "z.pdf")):
+        for p in (os.path.join(a, "x.pdf"), os.path.join(b, "sub", "x.pdf"), os.path.join(b, "z.pdf")):
             with open(p, "wb") as fh:
                 fh.write(payload)
         self.a, self.b = a, b
@@ -255,13 +255,44 @@ class GuiSmoke(unittest.TestCase):
         app.toggle_lang()
         app.toggle_log()
         app.show_info()
+        app.show_license()
+        app.show_disclaimer(False)
         app.show_settings()
         app.show_purge()
+        app.show_stats()
+        app.show_archive_browser()
+        app.show_schedule()
+        # Ansichten wechseln (doppelte Ordner / nahezu gleiche Dokumente) und Seiten
+        for k in (1, 2, 0):
+            app.view_cb.current(k)
+            app._change_view()
+        app._goto_page(1)
+        app._goto_page(-1)
         # Rueckgaengig
         app.undo_last()
         self.wait(app)
         self.assertTrue(all(m.get("state") == "open" for m in app.groups[0]["members"]))
         self.assertFalse([d for d in self.dialogs if d[0] == "error"], self.dialogs)
+
+    def test_folder_view_archive(self):
+        app = self.gui.App(self.gui.tk.Tk(), self.store, self.data)
+        app.src_list._items = [self.a, self.b]
+        app.archive_var.set(os.path.join(self.tmp, "Archiv"))
+        app.start_scan()
+        self.wait(app)
+        self.assertEqual(len(app.folder_groups), 1, self.dialogs)   # A und B/sub sind gleich
+        app.view_cb.current(1)
+        app._change_view()
+        fg = app.folder_groups[0]
+        arch_idx = next(i for i, f in enumerate(fg["folders"]) if not f["keep"])
+        app.tree.focus(f"f{fg['fgid']}:{arch_idx}")
+        app.set_original()                                     # anderen Ordner zum Original machen
+        self.assertTrue(fg["folders"][arch_idx]["keep"])
+        app.archive(True)
+        self.wait(app)
+        archived = [m for g in app.groups for m in g["members"] if m.get("state") == "archived"]
+        self.assertEqual(len(archived), 1, self.dialogs)
+        self.assertFalse([d for d in self.dialogs if d[0] in ("error", "warning")], self.dialogs)
         self.assertFalse(self.mb.calls, "native Windows-Meldungsfenster verwendet")
 
     def test_restart_loads_session(self):

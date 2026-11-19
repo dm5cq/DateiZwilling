@@ -60,7 +60,7 @@ CATEGORIES: dict[str, set[str]] = {
         "aep", "aet", "aepx", "prproj", "prel", "plb", "xd", "fla", "xfl", "swf",
         "sesx", "aup3", "abr", "asl", "aco", "ase", "act", "pat", "grd", "atn",
         "xmp", "lrtemplate", "lrcat", "lrdata", "lrprev", "dcp", "xmp", "pdn",
-        "dwg", "dxf", "chproj", "rush", "pproj", "mogrt", "aex",
+        "chproj", "rush", "pproj", "mogrt", "aex",
     },
     "affinity": {
         "af", "afphoto", "afdesign", "afpub", "aftemplate", "afpalette",
@@ -69,6 +69,17 @@ CATEGORIES: dict[str, set[str]] = {
     "captureone": {
         "cos", "cop", "cot", "costyle", "costylepack", "coplate", "comask",
         "cosessiondb", "cocatalogdb", "coaudio", "cocatalog", "cosession", "eip",
+    },
+    "3d": {
+        # 3D-Druck: Modelle, Projekte, Slicer-Ausgaben
+        "stl", "3mf", "obj", "mtl", "amf", "ply", "off", "wrl", "x3d", "gltf", "glb", "fbx",
+        "dae", "3ds", "blend", "blend1", "scad", "fcstd", "fcstd1", "f3d", "f3z", "skp",
+        "gcode", "gco", "g", "bgcode", "x3g", "makerbot", "ufp", "sl1", "sl1s", "ctb", "cbddlp",
+        "photon", "pwmx", "pwma", "pws", "pw0", "lys", "chitubox", "lychee", "goo", "prusa",
+        "curaprofile", "orca_printer", "orca_filament",
+        # CAD
+        "step", "stp", "iges", "igs", "sldprt", "sldasm", "slddrw", "ipt", "iam", "idw",
+        "catpart", "catproduct", "prt", "asm", "x_t", "x_b", "sat", "dwg", "dxf", "dwf",
     },
     "video": {
         "mp4", "m4v", "mov", "avi", "mkv", "wmv", "mpg", "mpeg", "m2ts", "mts", "ts",
@@ -90,7 +101,7 @@ CATEGORIES: dict[str, set[str]] = {
 }
 
 CATEGORY_ORDER = [
-    "office", "pdf", "image", "raw", "adobe", "affinity", "captureone",
+    "office", "pdf", "image", "raw", "adobe", "affinity", "captureone", "3d",
     "video", "audio", "archive", "text", "other",
 ]
 
@@ -126,6 +137,7 @@ SKIP_FILE_PATTERNS = [
     ".ds_store", "._*", ".localized", "icon\r",
     "*.dzpart",       # eigene, unfertige Kopien
     "*.lnk",          # Verknuepfungen
+    "*.dzpart.tmp",
     "pagefile.sys", "hiberfil.sys", "swapfile.sys",
 ]
 

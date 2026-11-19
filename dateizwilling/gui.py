@@ -16,7 +16,10 @@ from tkinter import filedialog, ttk
 from tkinter import font as tkfont
 
 from . import APP_COPYRIGHT, APP_COPYRIGHT_EN, APP_NAME, APP_VERSION, config
-from .archiver import Archiver, recover_all
+from .archiver import Archiver, NeedsAttention, recover_all
+from .gui_extra import DialogsMixin
+from .pathutil import KeepAwake, cloud_sync_kind, is_within, risky_source
+from .preview import make_preview
 from .common import Cancelled, Control, human_duration, human_size, human_time
 from .formats import CATEGORY_ORDER, PREVIEWABLE, category_of, ext_of
 from .i18n import Tr
@@ -33,7 +36,7 @@ except Exception:  # pragma: no cover
 
 log = logging.getLogger("dateizwilling.gui")
 
-MAX_GROUPS_SHOWN = 5000
+PAGE_SIZE = 1000
 
 
 class Palette:
@@ -251,7 +254,7 @@ class QueueLogHandler(logging.Handler):
             pass
 
 
-class App:
+class App(DialogsMixin):
     def __init__(self, root: tk.Tk, store: Store, data_dir: str):
         self.root = root
         self.store = store
@@ -267,6 +270,11 @@ class App:
         self.groups: list[dict] = []
         self.group_by_id: dict[int, dict] = {}
         self.iid_member: dict[str, tuple[int, int]] = {}
+        self.iid_folder: dict[str, tuple[int, int]] = {}
+        self.folder_groups: list[dict] = []
+        self.view = "same"
+        self.page = 0
+        self._preview_token = 0
         self.populated: set[int] = set()
         self._img_refs: list = []
         self._log_lines: list[str] = []
@@ -438,6 +446,18 @@ class App:
         # ---------- Kopfzeile
         head = ttk.Frame(self.root, style="Header.TFrame", padding=(16, 10))
         head.pack(fill="x")
+        ttk.Button(head, text=t("info"), style="Header.TButton", command=self.show_info).pack(side="right")
+        ttk.Button(head, text=t("settings"), style="Header.TButton",
+                   command=self.show_settings).pack(side="right", padx=4)
+        ttk.Button(head, text=t("hdr_schedule"), style="Header.TButton",
+                   command=self.show_schedule).pack(side="right", padx=4)
+        ttk.Button(head, text=t("hdr_stats"), style="Header.TButton",
+                   command=self.show_stats).pack(side="right", padx=4)
+        ttk.Button(head, text=t("hdr_archive"), style="Header.TButton",
+                   command=self.show_archive_browser).pack(side="right", padx=4)
+        self.lang_btn = ttk.Button(head, text="EN" if self.cfg["lang"] == "de" else "DE",
+                                   style="Header.TButton", command=self.toggle_lang, width=4)
+        self.lang_btn.pack(side="right", padx=4)
         try:
             png = resource_path(os.path.join("assets", "icon_48.png"))
             if os.path.exists(png):
@@ -449,12 +469,6 @@ class App:
         titles.pack(side="left")
         ttk.Label(titles, text=APP_NAME, style="Title.TLabel").pack(anchor="w")
         ttk.Label(titles, text=t("subtitle"), style="Header.TLabel").pack(anchor="w")
-        ttk.Button(head, text=t("info"), style="Header.TButton", command=self.show_info).pack(side="right")
-        ttk.Button(head, text=t("settings"), style="Header.TButton",
-                   command=self.show_settings).pack(side="right", padx=4)
-        self.lang_btn = ttk.Button(head, text="EN" if self.cfg["lang"] == "de" else "DE",
-                                   style="Header.TButton", command=self.toggle_lang, width=4)
-        self.lang_btn.pack(side="right", padx=4)
 
         # ---------- Statuszeile (unten)
         status = ttk.Frame(self.root, style="Header.TFrame", padding=(12, 6))
@@ -517,6 +531,7 @@ class App:
         ttk.Label(side, text=t("sources"), style="Section.TLabel").pack(anchor="w")
         self.src_list = self._listbox(side, 5)
         self.src_list.pack(fill="x", pady=(4, 2))
+        self._enable_drop(self.src_list)
         for s in self.cfg["sources"]:
             self.src_list.insert("end", s)
         row = ttk.Frame(side, style="Panel.TFrame")
@@ -530,12 +545,15 @@ class App:
         arow = ttk.Frame(side, style="Panel.TFrame")
         arow.pack(fill="x", pady=4)
         self.archive_var = tk.StringVar(value=self.cfg["archive"])
-        ttk.Entry(arow, textvariable=self.archive_var).pack(side="left", fill="x", expand=True)
+        arch_entry = ttk.Entry(arow, textvariable=self.archive_var)
+        arch_entry.pack(side="left", fill="x", expand=True)
+        self._enable_drop(arch_entry, "entry")
         ttk.Button(arow, text=t("browse"), command=self._choose_archive).pack(side="left", padx=(4, 0))
 
         ttk.Label(side, text=t("protected"), style="Section.TLabel").pack(anchor="w", pady=(10, 0))
         self.prot_list = self._listbox(side, 3)
         self.prot_list.pack(fill="x", pady=(4, 2))
+        self._enable_drop(self.prot_list)
         for s in self.cfg["protected"]:
             self.prot_list.insert("end", s)
         prow = ttk.Frame(side, style="Panel.TFrame")
@@ -589,8 +607,23 @@ class App:
         self.sort_cb.current(0)
         self.sort_cb.pack(side="left", padx=4)
         self.sort_cb.bind("<<ComboboxSelected>>", lambda e: self._refresh_tree())
+        bar2 = ttk.Frame(main)
+        bar2.pack(fill="x", pady=(0, 6))
+        ttk.Label(bar2, text=t("view")).pack(side="left")
+        self.view_keys = ["same", "folders", "similar"]
+        self.view_cb = ttk.Combobox(bar2, state="readonly", width=26,
+                                    values=[t("view_" + k) for k in self.view_keys])
+        self.view_cb.current(self.view_keys.index(self.view) if self.view in self.view_keys else 0)
+        self.view_cb.pack(side="left", padx=(4, 12))
+        self.view_cb.bind("<<ComboboxSelected>>", lambda e: self._change_view())
+        self.page_prev = ttk.Button(bar2, text="◀", width=3, command=lambda: self._goto_page(-1))
+        self.page_prev.pack(side="left")
+        self.page_var = tk.StringVar(value="")
+        ttk.Label(bar2, textvariable=self.page_var).pack(side="left", padx=6)
+        self.page_next = ttk.Button(bar2, text="▶", width=3, command=lambda: self._goto_page(1))
+        self.page_next.pack(side="left")
         self.summary_var = tk.StringVar(value="")
-        ttk.Label(bar, textvariable=self.summary_var, foreground=c.accent).pack(side="right")
+        ttk.Label(bar2, textvariable=self.summary_var, foreground=c.accent).pack(side="right")
 
         paned = ttk.PanedWindow(main, orient="vertical")
 
@@ -670,6 +703,29 @@ class App:
         info.bind("<Configure>", lambda e: info.configure(wraplength=max(150, e.width - 10)))
         return card
 
+    def _enable_drop(self, widget, target: str = "list") -> None:
+        """Drag & Drop von Ordnern (F5) – nur wenn tkinterdnd2 vorhanden ist."""
+        if not getattr(self.root, "_dz_dnd", False):
+            return
+        try:
+            from tkinterdnd2 import DND_FILES  # type: ignore
+
+            def drop(event):
+                for p in self.root.tk.splitlist(event.data):
+                    p = os.path.normpath(p)
+                    if not os.path.isdir(p):
+                        continue
+                    if target == "entry":
+                        self.archive_var.set(p)
+                    elif p not in widget.get(0, "end"):
+                        widget.insert("end", p)
+                self._sync_cfg()
+                return event.action
+            widget.drop_target_register(DND_FILES)
+            widget.dnd_bind("<<Drop>>", drop)
+        except Exception:
+            log.debug("Drag & Drop nicht verfuegbar", exc_info=True)
+
     def _bind_keys(self) -> None:
         r = self.root
         r.bind("<F5>", lambda e: self.start_scan())
@@ -741,7 +797,10 @@ class App:
             include_hidden=cf["include_hidden"], skip_cloud_only=cf["skip_cloud_only"],
             protect_catalogs=cf["protect_catalogs"], prefer_source_order=cf["prefer_source_order"],
             keep_rule=cf["keep_rule"], workers=int(cf["workers"]), verify_bytes=cf["verify_bytes"],
-            move_sidecars=cf["move_sidecars"])
+            move_sidecars=cf["move_sidecars"], prefer=list(cf.get("prefer", [])),
+            avoid=list(cf.get("avoid", [])), find_folders=bool(cf.get("find_folders", True)),
+            find_similar=bool(cf.get("find_similar", False)),
+            remove_empty_dirs=bool(cf.get("remove_empty_dirs", True)))
 
     # ================================================================ Hintergrundarbeit
     def _set_busy(self, kind: str | None) -> None:
@@ -773,10 +832,14 @@ class App:
 
         def runner() -> None:
             try:
-                result = target(*args)
+                with KeepAwake():  # ST1: kein Standby waehrend des Laufs
+                    result = target(*args)
                 self.q.put(("done", kind, result))
             except Cancelled:
                 self.q.put(("cancelled", kind, None))
+            except NeedsAttention as exc:
+                log.warning("Lauf angehalten: %s", exc)
+                self.q.put(("attention", kind, str(exc)))
             except Exception as exc:
                 log.error("Fehler (%s): %s\n%s", kind, exc, traceback.format_exc())
                 self.q.put(("error", kind, f"{type(exc).__name__}: {exc}"))
@@ -822,6 +885,12 @@ class App:
                 elif kind == "error":
                     self._finish("⚠ " + msg[2])
                     self.info(self.tr("crash", err=msg[2]), "error")
+                elif kind == "attention":
+                    self._finish("⚠ " + msg[2])
+                    self._reload_groups()
+                    self.info(self.tr("attention", msg=msg[2]), "warning")
+                elif kind == "preview":
+                    self._show_preview(msg[1], msg[2], msg[3])
             if progress:
                 self._show_progress(progress)
         finally:
@@ -837,6 +906,13 @@ class App:
             self.status_var.set(t("ph_enumerate", files=d.get("files", 0), dirs=d.get("dirs", 0)))
             self.rate_var.set(_short(d.get("current", ""), 60))
             return
+        if ph in ("waiting", "folders"):
+            if str(self.progress.cget("mode")) != "indeterminate":
+                self.progress.configure(mode="indeterminate")
+                self.progress.start(15)
+            self.status_var.set(t("ph_waiting", root=d.get("current", "")) if ph == "waiting" else t("ph_folders"))
+            self.rate_var.set("")
+            return
         if str(self.progress.cget("mode")) == "indeterminate":
             self.progress.stop()
             self.progress.configure(mode="determinate")
@@ -850,7 +926,8 @@ class App:
             val = 0
         self.progress.configure(value=val)
         key = {"partial": "ph_partial", "full": "ph_full", "archive": "ph_archive",
-               "undo": "ph_undo", "purge": "ph_purge"}.get(ph, "ph_full")
+               "undo": "ph_undo", "purge": "ph_purge", "similar": "ph_similar",
+               "recover": "ph_archive"}.get(ph, "ph_full")
         text = t(key, files=d.get("files", 0), total=tot)
         if d.get("cached"):
             text += "  ·  " + t("cached", n=d["cached"])
@@ -880,6 +957,7 @@ class App:
         if kind == "scan":
             scanner, sid, groups = result
             self.session_id, self.groups = sid, groups
+            self.folder_groups = scanner.folder_groups
             self.session_stats = scanner.stats
             st = scanner.stats
             msg = t("scan_done", files=st["files"], groups=st["groups"], dups=st["duplicates"],
@@ -891,6 +969,9 @@ class App:
             self._finish(msg)
         elif kind in ("archive", "undo"):
             key = "archive_done" if kind == "archive" else "undo_done"
+            if self.session_id is None and kind == "undo":
+                self._finish(t(key, **result))
+                return
             self._reload_groups()
             self._finish(t(key, **result))
         elif kind == "purge":
@@ -908,6 +989,13 @@ class App:
         errs = validate_options(opts)
         if errs:
             self.info("\n".join(self.tr.error(e) for e in errs), "warning")
+            return
+        lines = []
+        for src in opts.sources:  # S7: Laufwerkswurzel / System- / Benutzerordner
+            r = risky_source(src)
+            if r:
+                lines.append("• " + self.tr("warn_" + r, x=src))
+        if lines and not self.ask_yes_no(APP_NAME, self.tr("warn_sources", lines="\n".join(lines))):
             return
         self._scan(opts, None)
 
@@ -929,6 +1017,7 @@ class App:
         if self.session_id is None:
             return
         self.groups = self.store.dupes_load(self.session_id)
+        self.folder_groups = self.store.folders_load(self.session_id)
         self._index_groups()
         self._refresh_tree()
 
@@ -938,7 +1027,24 @@ class App:
                 self.root.after_cancel(self._refresh_job)
             except tk.TclError:
                 pass
+        self.page = 0
         self._refresh_job = self.root.after(300, self._refresh_tree)
+
+    def _change_view(self) -> None:
+        try:
+            self.view = self.view_keys[self.view_cb.current()]
+        except (IndexError, tk.TclError):
+            self.view = "same"
+        self.page = 0
+        self._refresh_tree()
+
+    def _goto_page(self, delta: int) -> None:
+        self.page = max(0, self.page + delta)
+        self._refresh_tree()
+
+    def _kind_groups(self) -> list[dict]:
+        kind = "similar" if self.view == "similar" else "same"
+        return [g for g in self.groups if g.get("kind", "same") == kind]
 
     def _visible_groups(self) -> list[dict]:
         q = (self.search_var.get() if hasattr(self, "search_var") else "").strip().lower()
@@ -947,7 +1053,7 @@ class App:
         except (AttributeError, IndexError, tk.TclError):
             fcat = "all"
         out = []
-        for g in self.groups:
+        for g in self._kind_groups():
             if fcat != "all" and category_of(g["members"][0]["path"]) != fcat:
                 continue
             if q and not any(q in m["path"].lower() for m in g["members"]):
@@ -967,12 +1073,31 @@ class App:
             out.sort(key=lambda g: -(g["size"] * max(0, len(g["members"]) - 1)))
         return out
 
+    def _visible_folders(self) -> list[dict]:
+        q = (self.search_var.get() if hasattr(self, "search_var") else "").strip().lower()
+        out = [fg for fg in self.folder_groups
+               if not q or any(q in f["path"].lower() for f in fg["folders"])]
+        try:
+            sk = self.sort_keys[self.sort_cb.current()]
+        except (AttributeError, IndexError, tk.TclError):
+            sk = "savings"
+        if sk == "count":
+            out.sort(key=lambda fg: -len(fg["folders"]))
+        elif sk == "name":
+            out.sort(key=lambda fg: os.path.basename(fg["folders"][0]["path"]).lower())
+        else:
+            out.sort(key=lambda fg: -fg["size"] * max(1, len(fg["folders"]) - 1))
+        return out
+
     def _group_text(self, g: dict) -> str:
         lang = self.cfg["lang"]
         n_dup = sum(1 for m in g["members"] if not m.get("keep") and m.get("state") != "archived")
-        return self.tr("group_line", gid=g["gid"], n=len(g["members"]), size=human_size(g["size"], lang),
-                       save=human_size(g["size"] * n_dup, lang),
-                       cat=self.tr("cat_" + category_of(g["members"][0]["path"])))
+        txt = self.tr("group_line", gid=g["gid"], n=len(g["members"]), size=human_size(g["size"], lang),
+                      save=human_size(g["size"] * n_dup, lang),
+                      cat=self.tr("cat_" + category_of(g["members"][0]["path"])))
+        if g.get("kind") == "similar":
+            txt += " · " + self.tr("similar_tag")
+        return txt
 
     def _refresh_tree(self) -> None:
         self._refresh_job = None
@@ -980,26 +1105,56 @@ class App:
             return
         self.tree.delete(*self.tree.get_children())
         self.iid_member.clear()
+        self.iid_folder.clear()
         self.populated.clear()
-        vis = self._visible_groups()
-        shown = vis[:MAX_GROUPS_SHOWN]
-        for i, g in enumerate(shown):
-            gi = f"g{g['gid']}"
-            self.tree.insert("", "end", iid=gi, text=self._group_text(g), tags=("group",), open=False)
-            if i < 40:
-                self._populate(g["gid"])
-                self.tree.item(gi, open=True)
-            else:
-                self.tree.insert(gi, "end", iid=f"{gi}:dummy", text="…")
         lang = self.cfg["lang"]
-        dups = sum(1 for g in self.groups for m in g["members"] if not m.get("keep") and m.get("state") != "archived")
-        wasted = sum(g["size"] for g in self.groups for m in g["members"] if not m.get("keep") and m.get("state") != "archived")
-        summ = f"{len(self.groups)} · {dups} ⇢ · {human_size(wasted, lang)}" if self.groups else ""
-        if len(vis) > MAX_GROUPS_SHOWN:
-            summ = self.tr("too_many", n=MAX_GROUPS_SHOWN) + "   " + summ
+        if self.view == "folders":
+            vis = self._visible_folders()
+        else:
+            vis = self._visible_groups()
+        pages = max(1, (len(vis) + PAGE_SIZE - 1) // PAGE_SIZE)
+        self.page = min(self.page, pages - 1)
+        shown = vis[self.page * PAGE_SIZE:(self.page + 1) * PAGE_SIZE]
+        if self.view == "folders":
+            for i, fg in enumerate(shown):
+                self._insert_folder_group(fg, i < 40)
+        else:
+            for i, g in enumerate(shown):
+                gi = f"g{g['gid']}"
+                self.tree.insert("", "end", iid=gi, text=self._group_text(g), tags=("group",), open=False)
+                if i < 40:
+                    self._populate(g["gid"])
+                    self.tree.item(gi, open=True)
+                else:
+                    self.tree.insert(gi, "end", iid=f"{gi}:dummy", text="…")
+        try:
+            self.page_var.set(self.tr("page", p=self.page + 1, n=pages) if len(vis) > PAGE_SIZE else "")
+            self.page_prev.state(["!disabled"] if self.page > 0 else ["disabled"])
+            self.page_next.state(["!disabled"] if self.page < pages - 1 else ["disabled"])
+        except (AttributeError, tk.TclError):
+            pass
+        same = [g for g in self.groups if g.get("kind", "same") == "same"]
+        dups = sum(1 for g in same for m in g["members"] if not m.get("keep") and m.get("state") != "archived")
+        wasted = sum(g["size"] for g in same for m in g["members"] if not m.get("keep") and m.get("state") != "archived")
+        summ = f"{len(same)} · {dups} ⇢ · {human_size(wasted, lang)}" if same else ""
         self.summary_var.set(summ)
         for card in getattr(self, "cards", []):
             self._fill_card(card, None, None)
+
+    def _insert_folder_group(self, fg: dict, open_: bool) -> None:
+        lang = self.cfg["lang"]
+        fi = f"f{fg['fgid']}"
+        n_arch = sum(1 for f in fg["folders"] if not f.get("keep"))
+        self.tree.insert("", "end", iid=fi, open=open_, tags=("group",), text=self.tr(
+            "folder_line", fgid=fg["fgid"], n=len(fg["folders"]), files=fg["files"],
+            size=human_size(fg["size"], lang), save=human_size(fg["size"] * n_arch, lang)))
+        for idx, f in enumerate(fg["folders"]):
+            iid = f"{fi}:{idx}"
+            self.iid_folder[iid] = (fg["fgid"], idx)
+            self.tree.insert(fi, "end", iid=iid, text=os.path.basename(f["path"].rstrip("\\/")) or f["path"],
+                             values=(os.path.dirname(f["path"]), human_size(f["size"], lang), "",
+                                     self.tr("act_keep_folder") if f.get("keep") else self.tr("act_archive_folder")),
+                             tags=("keep" if f.get("keep") else "dup",))
 
     def _populate(self, gid: int) -> None:
         if gid in self.populated:
@@ -1016,7 +1171,7 @@ class App:
             iid = f"{gi}:{idx}"
             self.iid_member[iid] = (gid, idx)
             self.tree.insert(gi, "end", iid=iid, text=os.path.basename(m["path"]),
-                             values=(os.path.dirname(m["path"]), human_size(g["size"], lang),
+                             values=(os.path.dirname(m["path"]), human_size(m.get("size", g["size"]), lang),
                                      human_time(m["mtime_ns"], lang), self._action_text(m)),
                              tags=(self._member_tag(m),))
         self.populated.add(gid)
@@ -1045,8 +1200,26 @@ class App:
             return g, g["members"][idx]
         return None
 
+    def _folder_by_iid(self, iid: str) -> tuple[dict, dict] | None:
+        if iid in self.iid_folder:
+            fgid, idx = self.iid_folder[iid]
+            fg = next((x for x in self.folder_groups if x["fgid"] == fgid), None)
+            if fg:
+                return fg, fg["folders"][idx]
+        return None
+
     def _on_select(self, _e=None) -> None:
         iid = self.tree.focus()
+        if self.view == "folders":
+            sel = self._folder_by_iid(iid)
+            fg = sel[0] if sel else (next((x for x in self.folder_groups if f"f{x['fgid']}" == iid), None))
+            if not fg:
+                return
+            keep = next((f for f in fg["folders"] if f.get("keep")), fg["folders"][0])
+            other = sel[1] if sel and sel[1] is not keep else next((f for f in fg["folders"] if f is not keep), None)
+            self._fill_folder_card(self.cards[0], keep, fg)
+            self._fill_folder_card(self.cards[1], other, fg)
+            return
         g = None
         sel_m = None
         if iid in self.iid_member:
@@ -1062,6 +1235,23 @@ class App:
             (m for m in g["members"] if m is not keeper), None)
         self._fill_card(self.cards[0], keeper, g)
         self._fill_card(self.cards[1], other, g)
+
+    def _fill_folder_card(self, card: dict, f: dict | None, fg: dict) -> None:
+        cv: tk.Canvas = card["canvas"]
+        cv.delete("all")
+        card["path"] = f["path"] if f else None
+        if not f:
+            card["info"].configure(text="")
+            return
+        lang, t, c = self.cfg["lang"], self.tr, self.c
+        card["info"].configure(text=(
+            f"{os.path.basename(f['path'].rstrip(os.sep)) or f['path']}\n\n{t('path')}: {f['path']}\n"
+            f"{t('col_size')}: {human_size(f['size'], lang)} · {f['files']} {t('br_files').split()[0]}\n"
+            f"{t('col_action')}: {t('act_keep_folder') if f.get('keep') else t('act_archive_folder')}"))
+        w, h = int(cv.cget("width")), int(cv.cget("height"))
+        cv.create_rectangle(w // 2 - 50, h // 2 - 30, w // 2 + 50, h // 2 + 40, outline=c.accent, width=2)
+        cv.create_rectangle(w // 2 - 50, h // 2 - 42, w // 2 - 10, h // 2 - 30, outline=c.accent, width=2)
+        cv.create_text(w // 2, h // 2 + 5, text=str(f["files"]), fill=c.fg, font=self.f_bold)
 
     def _fill_card(self, card: dict, m: dict | None, g: dict | None) -> None:
         cv: tk.Canvas = card["canvas"]
@@ -1083,34 +1273,71 @@ class App:
             pass
         state = t("act_archived") if m.get("state") == "archived" else (
             t("act_keep") if m.get("keep") else t("act_archive"))
+        size = m.get("size", g["size"])
         card["info"].configure(text=(
             f"{os.path.basename(path)}\n\n{t('path')}: {os.path.dirname(path)}\n"
-            f"{t('col_size')}: {human_size(g['size'], lang)} ({_thousands(g['size'], lang)} B)\n"
+            f"{t('col_size')}: {human_size(size, lang)} ({_thousands(size, lang)} B)\n"
             f"{t('col_date')}: {human_time(m['mtime_ns'], lang)}\n{t('created')}: {created}\n"
             f"{t('type')}: {t('cat_' + category_of(path))} (.{ext_of(path) or '–'})\n"
             f"{t('hash')}: {g['hash'][:32]}…\n{t('col_action')}: {state}"))
-        self._draw_preview(cv, path)
+        self._draw_placeholder(cv, path)
+        self._request_preview(card, path)
 
-    def _draw_preview(self, cv: tk.Canvas, path: str) -> None:
+    def _draw_placeholder(self, cv: tk.Canvas, path: str) -> None:
         c = self.c
         w, h = int(cv.cget("width")), int(cv.cget("height"))
         ext = ext_of(path)
-        if Image is not None and ext in PREVIEWABLE and m_size(path) < 80 * 1024 * 1024:
-            try:
-                with Image.open(fs(path)) as im:
-                    im.draft("RGB", (w * 2, h * 2))
-                    im = ImageOps.exif_transpose(im)
-                    im.thumbnail((w, h))
-                    photo = ImageTk.PhotoImage(im.convert("RGB"))
-                self._img_refs = (self._img_refs + [photo])[-4:]
-                cv.create_image(w // 2, h // 2, image=photo)
-                return
-            except Exception:
-                pass
-        cv.create_rectangle(w // 2 - 40, h // 2 - 55, w // 2 + 40, h // 2 + 45, outline=c.accent, width=2)
+        cv.create_rectangle(w // 2 - 34, h // 2 - 46, w // 2 + 34, h // 2 + 36, outline=c.accent, width=2)
         cv.create_text(w // 2, h // 2 - 5, text=("." + ext.upper()) if ext else "?", fill=c.fg, font=self.f_bold)
-        cv.create_text(w // 2, h // 2 + 62, text=self.tr("cat_" + category_of(path)), fill=c.muted,
+        cv.create_text(w // 2, h // 2 + 52, text=self.tr("cat_" + category_of(path)), fill=c.muted,
                        font=self.f_small)
+
+    def _request_preview(self, card: dict, path: str) -> None:
+        """Vorschau im Hintergrund erzeugen (ST3) – die Oberflaeche blockiert nie."""
+        self._preview_token += 1
+        token = self._preview_token
+        card["token"] = token
+        cv = card["canvas"]
+        box = (int(cv.cget("width")), int(cv.cget("height")))
+
+        if getattr(self, "_pv_q", None) is None:
+            self._pv_q = queue.Queue()
+            threading.Thread(target=self._preview_worker, name="dz-preview", daemon=True).start()
+        self._pv_q.put((card, token, path, box))
+
+    def _preview_worker(self) -> None:
+        """Ein einziger Vorschau-Thread; veraltete Anfragen werden verworfen."""
+        while True:
+            req = self._pv_q.get()
+            latest = {id(req[0]): req}
+            try:
+                while True:
+                    r = self._pv_q.get_nowait()
+                    latest[id(r[0])] = r
+            except queue.Empty:
+                pass
+            for card, token, path, box in latest.values():
+                if card.get("token") != token:
+                    continue
+                try:
+                    img = make_preview(path, box)
+                except Exception:
+                    img = None
+                if img is not None:
+                    self.q.put(("preview", card, token, img))
+
+    def _show_preview(self, card: dict, token: int, img) -> None:
+        if card.get("token") != token or ImageTk is None:
+            return
+        try:
+            photo = ImageTk.PhotoImage(img)
+            cv = card["canvas"]
+            cv.delete("all")
+            w, h = int(cv.cget("width")), int(cv.cget("height"))
+            cv.create_image(w // 2, h // 2, image=photo)
+            self._img_refs = (self._img_refs + [photo])[-6:]
+        except (tk.TclError, ValueError, TypeError):
+            pass
 
     def _update_group_rows(self, g: dict) -> None:
         gi = f"g{g['gid']}"
@@ -1126,7 +1353,7 @@ class App:
         self._on_select()
 
     def toggle_keep(self) -> None:
-        if self.busy_kind:
+        if self.busy_kind or self.view == "folders":
             return
         sm = self._selected_member()
         if not sm:
@@ -1139,11 +1366,14 @@ class App:
             return
         m["keep"] = not m.get("keep")
         if self.session_id is not None:
-            self.store.dupes_set_keep(self.session_id, m["path"], m["keep"])
+            self.store.dupes_set_keep(self.session_id, m["path"], m["keep"], g["gid"])
         self._update_group_rows(g)
 
     def set_original(self) -> None:
         if self.busy_kind:
+            return
+        if self.view == "folders":
+            self._set_original_folder()
             return
         sm = self._selected_member()
         if not sm:
@@ -1156,8 +1386,50 @@ class App:
                 continue
             x["keep"] = x is m
             if self.session_id is not None:
-                self.store.dupes_set_keep(self.session_id, x["path"], x["keep"])
+                self.store.dupes_set_keep(self.session_id, x["path"], x["keep"], g["gid"])
         self._update_group_rows(g)
+
+    def _set_original_folder(self) -> None:
+        sel = self._folder_by_iid(self.tree.focus())
+        if not sel:
+            return
+        fg, f = sel
+        for x in fg["folders"]:
+            x["keep"] = x is f
+        self.store.folders_store(self.session_id, self.folder_groups) if self.session_id else None
+        self._apply_folder_choice(fg)
+        self._refresh_tree()
+
+    def _apply_folder_choice(self, fg: dict) -> list[dict]:
+        """Uebertraegt die Ordner-Wahl auf die Dateigruppen: Dateien im Original-
+        Ordner werden behalten, die gleichen Dateien in den anderen Ordnern
+        archiviert. Rueckgabe: betroffene Dateigruppen."""
+        keep_dirs = [f["path"] for f in fg["folders"] if f.get("keep")]
+        arch_dirs = [f["path"] for f in fg["folders"] if not f.get("keep")]
+        touched = []
+        for g in self.groups:
+            if g.get("kind", "same") != "same":
+                continue
+            inside_keep = [m for m in g["members"] if any(is_within(m["path"], d) for d in keep_dirs)]
+            inside_arch = [m for m in g["members"] if any(is_within(m["path"], d) for d in arch_dirs)]
+            if not inside_keep or not inside_arch:
+                continue
+            for m in inside_arch:
+                if m.get("state") != "archived":
+                    m["keep"] = False
+            if not any(m.get("keep") for m in g["members"]):
+                inside_keep[0]["keep"] = True
+            for m in g["members"]:
+                if self.session_id is not None:
+                    self.store.dupes_set_keep(self.session_id, m["path"], bool(m.get("keep")), g["gid"])
+            # nur die Dateien dieser Ordner – andere Kopien der Gruppe bleiben unberuehrt
+            sub = dict(g)
+            sub["members"] = [m for m in g["members"]
+                              if m in inside_keep or m in inside_arch or m.get("keep")]
+            if not any(m.get("keep") for m in sub["members"]):
+                continue
+            touched.append(sub)
+        return touched
 
     # ================================================================ Archivieren
     def archive(self, all_groups: bool) -> None:
@@ -1166,7 +1438,13 @@ class App:
                 self.info(self.tr("nothing_selected"))
             return
         self._sync_cfg()
-        if all_groups:
+        if self.view == "folders":
+            fgs = self._visible_folders() if all_groups else [
+                fg for fg in self.folder_groups
+                if f"f{fg['fgid']}" in self.tree.selection()
+                or any(self.iid_folder.get(i, (None,))[0] == fg["fgid"] for i in self.tree.selection())]
+            groups = [g for fg in fgs for g in self._apply_folder_choice(fg)]
+        elif all_groups:
             groups = self._visible_groups()
         else:
             gids: set[int] = set()
@@ -1177,8 +1455,9 @@ class App:
                     gids.add(int(iid[1:]))
             groups = [self.group_by_id[x] for x in sorted(gids) if x in self.group_by_id]
         groups = [g for g in groups if any(m.get("keep") for m in g["members"])]
-        n = sum(1 for g in groups for m in g["members"] if not m.get("keep") and m.get("state", "open") == "open")
-        size = sum(g["size"] for g in groups for m in g["members"] if not m.get("keep") and m.get("state", "open") == "open")
+        movers = [(g, m) for g in groups for m in g["members"] if not m.get("keep") and m.get("state", "open") == "open"]
+        n = len(movers)
+        size = sum(m.get("size", g["size"]) for g, m in movers)
         if n == 0:
             self.info(self.tr("nothing_selected"))
             return
@@ -1187,6 +1466,12 @@ class App:
         if errs:
             self.info("\n".join(self.tr.error(e) for e in errs), "warning")
             return
+        kind = cloud_sync_kind(archive)
+        if kind and not self.ask_yes_no(self.tr("confirm_archive_title"), self.tr("warn_cloud", kind=kind)):
+            return
+        n_sim = sum(1 for g, m in movers if g.get("kind") == "similar")
+        if n_sim and not self.ask_yes_no(self.tr("confirm_archive_title"), self.tr("confirm_similar", n=n_sim)):
+            return
         if not self.ask_yes_no(self.tr("confirm_archive_title"),
                                self.tr("confirm_archive", n=n, size=human_size(size, self.cfg["lang"]),
                                        archive=archive)):
@@ -1194,12 +1479,39 @@ class App:
         sid = self.session_id
         verify = bool(self.cfg["verify_bytes"])
         sidecars = bool(self.cfg["move_sidecars"])
+        roots = list(self.cfg["sources"]) if self.cfg.get("remove_empty_dirs") else []
 
         def job():
             arch = Archiver(self.store, self.control, self._progress_cb, verify_bytes=verify)  # type: ignore[arg-type]
+            arch.empty_dir_roots = roots
             rid = arch.plan_archive(sid, groups, archive, sidecars)
             return arch.execute(rid)
         self._start("archive", job)
+
+    def _new_control(self) -> Control:
+        return Control()
+
+    def _run_undo(self, run: dict, entry_ids: list[int] | None) -> None:
+        if run.get("session_id"):
+            self.session_id = run["session_id"]
+
+        def job():
+            arch = Archiver(self.store, self.control, self._progress_cb)  # type: ignore[arg-type]
+            return arch.execute(arch.plan_undo(run["id"], entry_ids))
+        self._start("undo", job)
+
+    def _resume_run(self, run: dict) -> None:
+        self.session_id = run.get("session_id") or self.session_id
+        roots = list(self.cfg["sources"]) if self.cfg.get("remove_empty_dirs") else []
+
+        def job():
+            arch = Archiver(self.store, self.control, self._progress_cb,  # type: ignore[arg-type]
+                            verify_bytes=bool(self.cfg["verify_bytes"]))
+            arch.empty_dir_roots = roots
+            return arch.execute(run["id"])
+        if self.session_id:
+            self._reload_groups()
+        self._start("recover", job)
 
     def _last_archive_run(self) -> dict | None:
         for r in self.store.runs_list("archive"):
@@ -1216,13 +1528,7 @@ class App:
             return
         if not self.ask_yes_no(APP_NAME, self.tr("undo_confirm", id=run["id"])):
             return
-        if run.get("session_id"):
-            self.session_id = run["session_id"]
-
-        def job():
-            arch = Archiver(self.store, self.control, self._progress_cb)  # type: ignore[arg-type]
-            return arch.execute(arch.plan_undo(run["id"]))
-        self._start("undo", job)
+        self._run_undo(run, None)
 
     # ================================================================ Bereinigen (Freigabe)
     def show_purge(self) -> None:
@@ -1300,10 +1606,11 @@ class App:
         if not path:
             return
         try:
+            anon = bool(self.cfg.get("anonymize"))
             if path.lower().endswith(".csv"):
-                write_csv(path, self.groups)
+                write_csv(path, self.groups, anonymize=anon)
             else:
-                write_html(path, self.groups, self.session_stats, self.cfg["lang"])
+                write_html(path, self.groups, self.session_stats, self.cfg["lang"], anonymize=anon)
             open_with_default_app(path)
         except OSError as exc:
             self.info(str(exc), "error")
@@ -1323,48 +1630,25 @@ class App:
                         "yes", "cancel")
         return {"yes": True, "no": False}.get(v)
 
-    def _dialog(self, title: str, geometry: str) -> tk.Toplevel:
+    def _dialog(self, title: str, geometry: str | None) -> tk.Toplevel:
         win = tk.Toplevel(self.root)
         win.title(title)
         win.configure(bg=self.c.panel)
-        try:  # nicht groesser als der Bildschirm
-            gw, gh = (int(v) for v in geometry.split("x"))
-            gw = min(gw, int(self.root.winfo_screenwidth() * 0.95))
-            gh = min(gh, int(self.root.winfo_screenheight() * 0.88))
-            geometry = f"{gw}x{gh}"
-        except (ValueError, TypeError, tk.TclError):
-            pass
-        win.geometry(geometry)
+        if geometry:
+            try:  # nicht groesser als der Bildschirm
+                gw, gh = (int(v) for v in geometry.split("x"))
+                gw = min(gw, int(self.root.winfo_screenwidth() * 0.95))
+                gh = min(gh, int(self.root.winfo_screenheight() * 0.88))
+                geometry = f"{gw}x{gh}"
+            except (ValueError, TypeError, tk.TclError):
+                pass
+            win.geometry(geometry)
         win.transient(self.root)
         self._set_icon(win)
         style_titlebar(win, self.c.header)
         win.after(80, lambda: _safe_grab(win))
         win.bind("<Escape>", lambda e: win.destroy())
         return win
-
-    def show_info(self) -> None:
-        c, t = self.c, self.tr
-        win = self._dialog(t("info_title"), "560x440")
-        win.resizable(False, False)
-        fr = tk.Frame(win, bg=c.panel)
-        fr.pack(fill="both", expand=True, padx=20, pady=20)
-        try:
-            png = resource_path(os.path.join("assets", "icon_96.png"))
-            if os.path.exists(png):
-                self._info_icon = tk.PhotoImage(file=png)
-                tk.Label(fr, image=self._info_icon, bg=c.panel).pack()
-        except tk.TclError:
-            pass
-        tk.Label(fr, text=APP_NAME, bg=c.panel, fg=c.accent, font=self.f_title).pack(pady=(8, 0))
-        tk.Label(fr, text=f"Version {APP_VERSION}", bg=c.panel, fg="#ffffff", font=self.f_normal).pack()
-        tk.Label(fr, text=t("info_text"), bg=c.panel, fg="#ffffff", font=self.f_small, wraplength=500,
-                 justify="center").pack(pady=12)
-        copy = APP_COPYRIGHT if self.cfg["lang"] == "de" else APP_COPYRIGHT_EN
-        tk.Label(fr, text=copy, bg=c.panel, fg="#ffffff", font=self.f_small, wraplength=500,
-                 justify="center").pack(pady=(4, 12))
-        tk.Label(fr, text=f"{t('set_open_data')}: {self.data_dir}", bg=c.panel, fg=c.muted,
-                 font=self.f_small, wraplength=500).pack()
-        ttk.Button(fr, text=t("ok"), style="Accent.TButton", command=win.destroy).pack(pady=(14, 0))
 
     def show_settings(self) -> None:
         if self.busy_kind:
@@ -1399,14 +1683,16 @@ class App:
         vars_ = {}
         for key, label in (("verify_bytes", "set_verify"), ("prefer_source_order", "set_order"),
                            ("move_sidecars", "set_sidecars"), ("protect_catalogs", "set_catalogs"),
-                           ("skip_cloud_only", "set_cloud"), ("include_hidden", "set_hidden")):
+                           ("skip_cloud_only", "set_cloud"), ("include_hidden", "set_hidden"),
+                           ("find_folders", "set_folders"), ("find_similar", "set_similar"),
+                           ("remove_empty_dirs", "set_emptydirs"), ("anonymize", "set_anon")):
             vars_[key] = tk.BooleanVar(value=cf[key])
             ttk.Checkbutton(fr, text=t(label), variable=vars_[key]).pack(anchor="w", pady=1)
         r2 = ttk.Frame(fr, style="Panel.TFrame")
         r2.pack(fill="x", pady=(8, 2))
         ttk.Label(r2, text=t("set_workers"), style="Panel.TLabel").pack(side="left")
         workers = tk.StringVar(value=str(cf["workers"]))
-        ttk.Spinbox(r2, from_=1, to=16, textvariable=workers, width=5).pack(side="left", padx=8)
+        ttk.Spinbox(r2, from_=0, to=16, textvariable=workers, width=5).pack(side="left", padx=8)
         r3 = ttk.Frame(fr, style="Panel.TFrame")
         r3.pack(fill="x", pady=2)
         ttk.Label(r3, text=t("set_minsize"), style="Panel.TLabel").pack(side="left")
@@ -1416,6 +1702,35 @@ class App:
         ex = tk.Text(fr, height=5, bg=c.field, fg=c.fg, insertbackground=c.fg, relief="flat", font=self.f_mono)
         ex.insert("1.0", "\n".join(cf["excludes"]))
         ex.pack(fill="x")
+
+        # F3: Ordnerregeln
+        ttk.Label(fr, text=t("set_rules"), style="Section.TLabel").pack(anchor="w", pady=(14, 0))
+        rule_lists = {}
+        for key, label in (("prefer", "set_prefer"), ("avoid", "set_avoid")):
+            ttk.Label(fr, text=t(label), style="Panel.TLabel").pack(anchor="w", pady=(6, 2))
+            rrow = ttk.Frame(fr, style="Panel.TFrame")
+            rrow.pack(fill="x")
+            lb = self._listbox(rrow, 3)
+            lb.pack(side="left", fill="x", expand=True)
+            for d in cf.get(key, []):
+                lb.insert("end", d)
+            col = ttk.Frame(rrow, style="Panel.TFrame")
+            col.pack(side="left", padx=(6, 0))
+
+            def add(lb=lb):
+                d = filedialog.askdirectory(parent=win, mustexist=True)
+                if d and os.path.normpath(d) not in lb.get(0, "end"):
+                    lb.insert("end", os.path.normpath(d))
+
+            def rem(lb=lb):
+                for i in reversed(lb.curselection()):
+                    lb.delete(i)
+            ttk.Button(col, text="+", width=3, command=add).pack()
+            ttk.Button(col, text="–", width=3, command=rem).pack(pady=(4, 0))
+            self._enable_drop(lb)
+            rule_lists[key] = lb
+        ttk.Label(fr, text=t("btn_diag"), style="Section.TLabel").pack(anchor="w", pady=(14, 4))
+        ttk.Button(fr, text=t("btn_diag"), command=self.export_diagnostics).pack(anchor="w")
 
 
         def clear_cache():
@@ -1433,9 +1748,11 @@ class App:
             for k, v in vars_.items():
                 cf[k] = bool(v.get())
             try:
-                cf["workers"] = max(1, min(16, int(workers.get())))
+                cf["workers"] = max(0, min(16, int(workers.get())))
             except ValueError:
                 pass
+            for key, lb in rule_lists.items():
+                cf[key] = list(lb.get(0, "end"))
             try:
                 cf["min_size"] = max(0, int(minsize.get()))
             except ValueError:
@@ -1481,6 +1798,13 @@ class App:
     # ================================================================ Start / Ende
     def startup_checks(self) -> None:
         t = self.tr
+        # Haftungsausschluss einmal je Hauptversion bestaetigen lassen
+        if not str(self.cfg.get("disclaimer_accepted", "")).startswith(APP_VERSION.split(".")[0] + "."):
+            self.show_disclaimer(True)
+        try:
+            self.store.maintenance()
+        except Exception:
+            log.exception("Datenbankpflege fehlgeschlagen")
         try:
             notes = recover_all(self.store)
         except Exception as exc:
@@ -1497,16 +1821,7 @@ class App:
             if ans is None:
                 continue
             if ans:
-                self.session_id = run.get("session_id") or self.session_id
-                rid = run["id"]
-
-                def job(rid=rid):
-                    arch = Archiver(self.store, self.control, self._progress_cb,  # type: ignore[arg-type]
-                                    verify_bytes=bool(self.cfg["verify_bytes"]))
-                    return arch.execute(rid)
-                if self.session_id:
-                    self._reload_groups()
-                self._start("recover", job)
+                self._resume_run(run)
                 return
             for e in self.store.journal_entries(run["id"], (J_PLANNED,)):
                 self.store.journal_set(e["id"], J_SKIPPED, error="verworfen")
@@ -1524,6 +1839,7 @@ class App:
             self.session_id = ses["id"]
             self.session_stats = ses.get("stats") or {}
             self.groups = self.store.dupes_load(ses["id"])
+            self.folder_groups = self.store.folders_load(ses["id"])
             self._index_groups()
             self._refresh_tree()
             if self.groups:
@@ -1603,7 +1919,12 @@ def run_gui(store: Store, data_dir: str) -> None:
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("SJK.DateiZwilling")
         except Exception:
             pass
-    root = tk.Tk()
+    try:  # F5: Drag & Drop, falls tkinterdnd2 installiert ist
+        from tkinterdnd2 import TkinterDnD  # type: ignore
+        root = TkinterDnD.Tk()
+        root._dz_dnd = True  # type: ignore[attr-defined]
+    except Exception:
+        root = tk.Tk()
     App(root, store, data_dir)
     root.mainloop()
 
