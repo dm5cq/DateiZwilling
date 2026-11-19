@@ -3,8 +3,9 @@
 Identische Dateien finden – Duplikate sicher archivieren. Portable Windows-EXE, keine Installation nötig.
 
 ### Download
-- **DateiZwilling.exe** – starten, fertig. Einstellungen und Protokolle landen im Ordner `DateiZwilling-Daten` neben der EXE.
+- **DateiZwilling.exe** (Windows) – starten, fertig. Einstellungen und Protokolle landen im Ordner `DateiZwilling-Daten` neben der EXE.
 - **DateiZwilling.exe.sha256.txt** – Prüfsumme (`certutil -hashfile DateiZwilling.exe SHA256`)
+- **DateiZwilling-macOS.dmg** (macOS, Apple Silicon) – App in den Programme-Ordner ziehen, beim ersten Start Rechtsklick → Öffnen
 - **QuickGuide_DE.pdf / QuickGuide_EN.pdf** – Bedienung in Kürze
 - **Technische_Beschreibung_DE.pdf / Technical_Description_EN.pdf** – Technik, Code-Review, Original-Prompt
 
