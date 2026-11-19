@@ -1336,8 +1336,8 @@ class App(DialogsMixin):
             w, h = int(cv.cget("width")), int(cv.cget("height"))
             cv.create_image(w // 2, h // 2, image=photo)
             self._img_refs = (self._img_refs + [photo])[-6:]
-        except (tk.TclError, ValueError, TypeError):
-            pass
+        except Exception:  # Vorschau ist Komfort – ein Fehler darf die Oberflaeche nie stoeren
+            log.debug("Vorschau konnte nicht angezeigt werden", exc_info=True)
 
     def _update_group_rows(self, g: dict) -> None:
         gi = f"g{g['gid']}"
